@@ -1,4 +1,4 @@
-// LidGuard UI: theme, custom-drawn controls, lock screen, dialogs and the main window.
+﻿// LidGuard UI: theme, custom-drawn controls, lock screen, dialogs and the main window.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -546,11 +546,15 @@ class MainForm : Form
         pic.SetBounds(pad, pad, logo, logo);
         var title = Ui.Lbl("LidGuard", Ui.F(17, "Semibold"));
         title.SetBounds(pad + logo + Ui.S(12), pad - Ui.S(3), Ui.S(300), Ui.S(30));
-        var tagline = Ui.Lbl("Lock the screen. Keep the PC running.", Ui.F(9.5f), "muted");
+        var tagline = Ui.Lbl("Cover the desktop. Keep the PC running.", Ui.F(9.5f), "muted");
         tagline.SetBounds(pad + logo + Ui.S(12), pad + Ui.S(26), Ui.S(320), Ui.S(20));
 
-        var lockBtn = new RButton { Text = "Lock now", Primary = true, Font = Ui.F(12, "Semibold") };
-        lockBtn.SetBounds(pad, pad + Ui.S(70), w, Ui.S(52));
+        var lockBtn = new RButton { Text = "Privacy cover", Primary = true, Font = Ui.F(12, "Semibold") };
+        lockBtn.SetBounds(pad, pad + Ui.S(70), Ui.S(195), Ui.S(52));
+        var secureBtn = new RButton { Text = "Lock Windows", Font = Ui.F(11, "Semibold") };
+        secureBtn.SetBounds(pad + Ui.S(205), pad + Ui.S(70), Ui.S(195), Ui.S(52));
+        secureBtn.Click += (a, e) => app.SecureLock();
+        Controls.Add(secureBtn);
         status = new Chip("", "success");
         status.Location = new Point(pad, lockBtn.Bottom + Ui.S(12));
 

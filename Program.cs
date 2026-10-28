@@ -1,4 +1,4 @@
-// LidGuard - full-screen password cover that keeps the PC running with the lid closed.
+﻿// LidGuard - full-screen password cover that keeps the PC running with the lid closed.
 // Lives in the tray; a global shortcut (Ctrl+L by default) locks the screen.
 using System;
 using System.Collections.Generic;
@@ -85,12 +85,14 @@ static class Program
         // watchdog: a helper process that locks Windows if LidGuard dies while the screen is locked
         int wd = Array.IndexOf(args, "--watchdog");
         if (wd >= 0 && wd + 1 < args.Length) { Guard.Watch(int.Parse(args[wd + 1])); return; }
+        bool recover = Array.IndexOf(args, "--recover") >= 0;
         bool background = Array.IndexOf(args, "--background") >= 0;
         bool first;
         using (var mutex = new Mutex(true, "LidGuard.SingleInstance", out first))
         {
             if (!first)
             {
+                if (recover) { Environment.ExitCode = 2; return; }
                 // already running: ask that instance to show its window
                 if (!background) Native.PostMessage(Native.HWND_BROADCAST, App.ShowMsg, IntPtr.Zero, IntPtr.Zero);
                 return;
@@ -99,11 +101,21 @@ static class Program
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Power.RecoverIfStale();
-            Guard.Release();   // a previous run died while locked: put the taskbar and the rest back
+            Guard.Release();
+            if (recover)
+            {
+                Environment.ExitCode = RecoveryPending() ? 1 : 0;
+                return;
+            }
+            // a previous run died while locked: put the taskbar and the rest back
             AppDomain.CurrentDomain.ProcessExit += (s, e) => { Power.RestoreNow(); Guard.Release(); };
             SystemEvents.SessionEnding += (s, e) => { Power.RestoreNow(); Guard.Release(); };
             Application.Run(new App(background));
         }
+    }
+    static bool RecoveryPending()
+    {
+        return File.Exists(Path.Combine(Config.Dir, "restore.txt")) || Guard.Engaged || File.Exists(Path.Combine(Config.Dir, "dnd.flag"));
     }
 }
 
@@ -294,7 +306,18 @@ static class Power
 
     // power changes run in order on a worker thread so the UI (and the keyboard hook) never stalls
     // lid setting first: closing the lid right after locking must already be safe
-    public static void EnterWorkModeAsync() { lock (gate) queue = queue.ContinueWith(t => { EnterWorkMode(); Dnd.On(); }); }
+    public static void EnterWorkModeAsync()
+    {
+        lock (gate) queue = queue.ContinueWith(t =>
+        {
+            try { EnterWorkMode(); Dnd.On(); }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Could not enable closed-lid work mode. Your laptop may still sleep when closed.\n" + ex.Message,
+                    "LidGuard power settings", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        });
+    }
     public static void RestoreAsync() { lock (gate) queue = queue.ContinueWith(t => Restore()); }
 
     // finish anything queued, then make sure the user's settings are back (exit, sign-out)
@@ -304,40 +327,10 @@ static class Power
         Restore();
     }
 
-    static string Run(string args)
-    {
-        var psi = new ProcessStartInfo("powercfg.exe", args) { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true };
-        using (var p = Process.Start(psi)) { string o = p.StandardOutput.ReadToEnd(); p.WaitForExit(); return o; }
-    }
-
-    static int Get(string sub, string setting, string kind)
-    {
-        // /qh, not /query: the lid setting is hidden on some laptops
-        foreach (var line in Run("/qh SCHEME_CURRENT " + sub + " " + setting).Split('\n'))
-            if (line.Contains("Current " + kind + " Power Setting Index"))
-                return Convert.ToInt32(line.Split(':')[1].Trim(), 16);
-        return -1;
-    }
-
-    static void Set(string kind, string sub, string setting, int v)
-    {
-        if (v >= 0) Run("/set" + kind + "valueindex SCHEME_CURRENT " + sub + " " + setting + " " + v);
-    }
-
+    internal static IPowerBackend Backend = new WindowsPowerBackend();
     static void EnterWorkMode()
     {
-        lock (run)
-        {
-            if (!File.Exists(StateFile))
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(StateFile));
-                File.WriteAllText(StateFile, Get("SUB_BUTTONS", "LIDACTION", "AC") + "," + Get("SUB_BUTTONS", "LIDACTION", "DC") + "," + Get("SUB_SLEEP", "STANDBYIDLE", "AC"));
-            }
-            Set("ac", "SUB_BUTTONS", "LIDACTION", 0);
-            Set("dc", "SUB_BUTTONS", "LIDACTION", 0);
-            Set("ac", "SUB_SLEEP", "STANDBYIDLE", 0);
-            Run("/setactive SCHEME_CURRENT");
-        }
+        lock (run) PowerRecovery.Enter(StateFile, Backend);
     }
 
     static void Restore()
@@ -345,17 +338,8 @@ static class Power
         Dnd.Off();
         lock (run)
         {
-            try
-            {
-                if (!File.Exists(StateFile)) return;
-                var p = File.ReadAllText(StateFile).Trim().Split(',');
-                Set("ac", "SUB_BUTTONS", "LIDACTION", int.Parse(p[0]));
-                Set("dc", "SUB_BUTTONS", "LIDACTION", int.Parse(p[1]));
-                Set("ac", "SUB_SLEEP", "STANDBYIDLE", int.Parse(p[2]));
-                Run("/setactive SCHEME_CURRENT");
-                File.Delete(StateFile);
-            }
-            catch { }
+            try { PowerRecovery.Restore(StateFile, Backend); }
+            catch (Exception ex) { Trace.TraceError("Power restore failed: " + ex.Message); }
         }
     }
 
@@ -492,7 +476,7 @@ static class Guard
             catch { }
             // the policy key is admin-only on most PCs; then Task Manager is handled by the focus guard instead
             try { using (var k = Registry.CurrentUser.CreateSubKey(PolicyKey)) k.SetValue("DisableTaskMgr", 1, RegistryValueKind.DWord); } catch { }
-            foreach (var s in Shortcuts) SetShortcutFlags(s, ShortcutFlags(s) & ~4);
+            foreach (var s in Shortcuts) { try { SetShortcutFlags(s, ShortcutFlags(s) & ~4); } catch { } }
             HideTaskbars();
         }
         StartWatchdog();
@@ -517,9 +501,9 @@ static class Guard
                             else k.SetValue("DisableTaskMgr", int.Parse(p[0]), RegistryValueKind.DWord);
                         }
                 }
-                catch { }
+                catch { return; }
                 for (int i = 0; i < Shortcuts.Length && i + 1 < p.Length; i++)
-                    SetShortcutFlags(Shortcuts[i], ShortcutFlags(Shortcuts[i]) | (int.Parse(p[i + 1]) & 4));
+                    SetShortcutFlags(Shortcuts[i], (ShortcutFlags(Shortcuts[i]) & ~4) | (int.Parse(p[i + 1]) & 4));
                 File.Delete(StateFile);
             }
             catch { }
@@ -538,9 +522,9 @@ static class Guard
     {
         var data = new int[s[2] / 4];
         data[0] = (int)s[2];
-        if (!Native.SystemParametersInfo(s[0], s[2], data, 0)) return;
+        if (!Native.SystemParametersInfo(s[0], s[2], data, 0)) throw new InvalidOperationException("Could not read accessibility settings.");
         data[1] = flags;
-        Native.SystemParametersInfo(s[1], s[2], data, 0);
+        if (!Native.SystemParametersInfo(s[1], s[2], data, 0)) throw new InvalidOperationException("Could not restore accessibility settings.");
     }
 
     // the taskbar on every screen; Explorer can bring it back, so the lock re-hides it regularly
@@ -597,7 +581,8 @@ class App : ApplicationContext
     {
         msgWin = new MessageWindow(this);
         var menu = MenuRenderer.NewMenu();
-        var miLock = menu.Items.Add("Lock now", null, (a, e) => Lock());
+        var miLock = menu.Items.Add("Privacy cover", null, (a, e) => Lock());
+        menu.Items.Add("Lock Windows securely", null, (a, e) => SecureLock());
         var miOpen = menu.Items.Add("Open LidGuard", null, (a, e) => ShowMain());
         menu.Items.Add(new ToolStripSeparator());
         var miExit = menu.Items.Add("Exit", null, (a, e) => Quit());
@@ -631,12 +616,21 @@ class App : ApplicationContext
         return false;
     }
 
+    public void SecureLock()
+    {
+        if (!Native.LockWorkStation())
+            Balloon("Windows could not lock this session. Try Win+L.");
+    }
+
     public void Lock()
     {
         if (session != null) return;
         // a dialog (e.g. change password) is open: bring it forward instead of locking over it
         foreach (Form f in Application.OpenForms) if (f.Modal) { f.Activate(); return; }
         if (!Config.HasPassword) { ShowMain(); return; }
+        if (MessageBox.Show("Privacy cover hides the desktop but is not a Windows security lock. " +
+            "Use the tray's Lock Windows securely command when you need Windows authentication.\n\nStart the privacy cover?",
+            "Privacy cover", MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
         bool mainWasVisible = main != null && main.Visible;
         if (main != null) main.Hide();
         session = new LockSession(() => { session = null; if (mainWasVisible) ShowMain(); });

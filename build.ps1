@@ -13,15 +13,14 @@ if ($LASTEXITCODE) { throw 'IconGen failed to compile' }
 & "$bin\IconGen.exe" "$bin\LidGuard.ico" "$bin\icon-preview.png"
 if ($LASTEXITCODE) { throw 'IconGen failed' }
 
-& $csc /nologo /target:winexe /codepage:65001 "/out:$bin\LidGuard.exe" "/win32icon:$bin\LidGuard.ico" "/resource:$bin\LidGuard.ico,LidGuard.ico" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll "$PSScriptRoot\Program.cs" "$PSScriptRoot\Ui.cs" "$PSScriptRoot\LockScreen.cs" "$PSScriptRoot\VideoWallpaper.cs"
+& $csc /nologo /target:winexe /codepage:65001 "/out:$bin\LidGuard.exe" "/win32icon:$bin\LidGuard.ico" "/resource:$bin\LidGuard.ico,LidGuard.ico" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll "$PSScriptRoot\PowerRecovery.cs" "$PSScriptRoot\Program.cs" "$PSScriptRoot\Ui.cs" "$PSScriptRoot\LockScreen.cs" "$PSScriptRoot\VideoWallpaper.cs"
 if ($LASTEXITCODE) { throw 'LidGuard failed to compile' }
 Write-Host "Built $bin\LidGuard.exe"
 if ($NoInstall) { return }
 
 $dest = Join-Path $env:LOCALAPPDATA 'Programs\LidGuard'
 $exe = Join-Path $dest 'LidGuard.exe'
-Get-Process LidGuard -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Milliseconds 500
+& "$PSScriptRoot\prepare-removal.ps1" -RecoveryExe "$bin\LidGuard.exe"
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 Copy-Item "$bin\LidGuard.exe" $exe -Force
 

@@ -1,7 +1,8 @@
-# Removes LidGuard. Your password, key and settings in %APPDATA%\LidGuard are kept unless you pass -Purge.
+﻿# Removes LidGuard. Your password, key and settings in %APPDATA%\LidGuard are kept unless you pass -Purge.
 param([switch]$Purge)
 
-Get-Process LidGuard -ErrorAction SilentlyContinue | Stop-Process -Force
+$ErrorActionPreference = 'Stop'
+& "$PSScriptRoot\prepare-removal.ps1" -RecoveryExe (Join-Path $env:LOCALAPPDATA 'Programs\LidGuard\LidGuard.exe')
 Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name LidGuard -ErrorAction SilentlyContinue
 Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'LidGuard.lnk') -ErrorAction SilentlyContinue
 Remove-Item (Join-Path ([Environment]::GetFolderPath('Desktop')) 'LidGuard.lnk') -ErrorAction SilentlyContinue
