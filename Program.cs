@@ -138,6 +138,7 @@ static class Config
 
     static Config()
     {
+        // Location stays unset until the user chooses a weather city.
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         try
         {

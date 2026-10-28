@@ -1,4 +1,4 @@
-// LidGuard lock screen: a macOS-style canvas with a liquid-glass clock, a generated
+﻿// LidGuard lock screen: a macOS-style canvas with a liquid-glass clock, a generated
 // grain wallpaper and frosted widgets. Everything is painted onto one surface.
 using System;
 using System.Collections.Generic;

@@ -1,2 +1,12 @@
 bin/
 *.building.mp4
+
+# Local preferences, credentials, and recovery state
+config.txt
+restore.txt
+restore.txt.tmp
+guard.txt
+dnd.flag
+wallpaper-loop.mp4
+.env
+.env.*
