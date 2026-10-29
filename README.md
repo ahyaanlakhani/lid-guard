@@ -1,12 +1,13 @@
 # LidGuard
 
-A Windows tray utility with a customizable privacy cover and a separate Windows lock command.
+A Windows tray utility for timed, secure closed-lid work sessions, Windows locking, and a customizable privacy cover.
 
 ## Choose the right action
 
 | Action | What it does | Power behavior |
 | --- | --- | --- |
 | **Privacy cover** (button, tray, or configured shortcut) | Shows a password-protected decorative cover with wallpapers and weather. This is an ordinary desktop application, not a Windows authentication boundary. | Temporarily sets the current plan's AC/DC lid action to do nothing and AC sleep timeout to zero; requests that the system stay awake. |
+| **Secure closed-lid session** (button or tray) | Locks Windows and keeps work running for a chosen time. Windows sign-in ends the session. | Temporarily overrides lid and AC sleep settings, with battery safety rules and crash recovery. |
 | **Lock Windows** (button or tray) | Requests the Windows lock screen. Sign back in with your Windows credentials. | Leaves Windows power settings unchanged. It does not enable closed-lid work mode. |
 
 Use Windows locking when you need to protect access to your session. The privacy cover's keyboard blocking, foreground handling and crash watchdog are convenience safeguards, not a replacement for Windows security. Do not rely on the cover against someone who can control processes or modify your user files.
@@ -29,6 +30,18 @@ Requires 64-bit Windows with the .NET Framework 4.x compiler and desktop compone
 Exit any running LidGuard instance before installing an update. The build checks compilation failures. Installation first runs recovery and aborts if recovery is incomplete.
 
 Set a password for the privacy cover. The default shortcut is Ctrl+L, which can conflict with other apps; change it or turn it off in settings. Use the **Lock Windows** button for Windows authentication without setting a separate cover password.
+
+## Secure closed-lid sessions
+
+Choose **Secure closed-lid session...** in the window or tray. Select a duration from 1 minute to 24 hours (default: two hours). **Only while plugged in** is enabled by default: disconnecting the charger ends the override on the next check. Disable it to allow battery operation and choose a cutoff from 10% to 90% (default: 20%). Unknown power-source information, or unknown battery charge while on battery, prevents or ends a session.
+
+**Start and lock Windows** applies the temporary power settings and requests the Windows lock screen. It requires Windows authentication; no separate cover password is needed. The window shows remaining minutes, and the window/tray offers **End session**.
+
+Signing back in, reaching the duration, reaching the battery cutoff, unplugging in AC-only mode, changing power plans, or exiting LidGuard ends the override and restores saved power settings. The app checks once per second; busy Windows or a suspended machine can delay a check. Ending a session restores normal Windows power behavior; it does not force sleep or unlock Windows. The existing Windows policies determine when the laptop sleeps afterward.
+
+A helper process retries restoration if LidGuard crashes. If Windows does not confirm locking within 15 seconds, the session cancels and restores settings. Startup/recovery retries any remaining power journal. A failed restore is shown as **Recovery needs attention** and blocks new sessions. Privacy cover and secure work sessions cannot run together.
+
+Session choices apply to that session and are not saved as personal preferences. Battery rules and timing currently apply to secure work sessions; the decorative privacy cover retains its existing behavior.
 
 ## Recovery and uninstall
 
@@ -60,9 +73,9 @@ Older three-value journals have no plan GUID. Automatic recovery preserves these
 .\tests\run.ps1
 ```
 
-The tests use a fake power backend and never change machine power settings. They cover plan switching, original values, failed writes, corrupt journals, and legacy recovery files. GitHub Actions builds and runs these tests on Windows.
+The tests use simulated power and Windows session operations; they never change machine power settings or lock Windows. They cover plan switching, original values, failed writes, corrupt journals, legacy recovery files, timer boundaries, charger changes, battery cutoffs, missing telemetry, Windows sign-in, lock confirmation, lock/monitor startup failures, and session cleanup. GitHub Actions builds and runs these tests on Windows.
 
-Before a release, manually verify on a test machine: lid close/open on AC and battery, multi-monitor changes, cover unlock, process crash/watchdog recovery, failed restoration, installation/uninstall, and Windows lock/sign-in. Automated checks do not exercise those desktop interactions.
+Before a release, manually verify on a test machine: lid close/open on AC and battery, multi-monitor changes, cover unlock, process crash/watchdog recovery, failed restoration, installation/uninstall, Windows lock/sign-in, secure session timeout, charger disconnect, battery threshold, lock failure, and crash recovery during a secure session. Automated checks do not exercise those desktop interactions.
 
 ## Data and limitations
 

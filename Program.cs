@@ -83,6 +83,8 @@ static class Program
     static void Main(string[] args)
     {
         // watchdog: a helper process that locks Windows if LidGuard dies while the screen is locked
+        int workWd = Array.IndexOf(args, "--work-watchdog");
+        if (workWd >= 0 && workWd + 1 < args.Length) { SecureWorkSession.Watch(int.Parse(args[workWd + 1])); return; }
         int wd = Array.IndexOf(args, "--watchdog");
         if (wd >= 0 && wd + 1 < args.Length) { Guard.Watch(int.Parse(args[wd + 1])); return; }
         bool recover = Array.IndexOf(args, "--recover") >= 0;
@@ -326,6 +328,12 @@ static class Power
     {
         try { queue.Wait(5000); } catch { }
         Restore();
+    }
+
+    internal static bool HasPending { get { return File.Exists(StateFile); } }
+    internal static void EnterSecureWorkMode()
+    {
+        lock (run) PowerRecovery.Enter(StateFile, Backend);
     }
 
     internal static IPowerBackend Backend = new WindowsPowerBackend();
@@ -575,19 +583,30 @@ class App : ApplicationContext
     readonly MessageWindow msgWin;
     MainForm main;
     LockSession session;
+    readonly SecureWorkSession work;
     public bool Quitting;
     public bool HotkeyOk = true;
 
     public App(bool background)
     {
         msgWin = new MessageWindow(this);
+        work = new SecureWorkSession(Balloon);
         var menu = MenuRenderer.NewMenu();
         var miLock = menu.Items.Add("Privacy cover", null, (a, e) => Lock());
         menu.Items.Add("Lock Windows securely", null, (a, e) => SecureLock());
+        var miWork = menu.Items.Add("Secure closed-lid session...", null, (a, e) => StartWork());
+        var miEndWork = menu.Items.Add("End work session", null, (a, e) => work.End("Session ended."));
         var miOpen = menu.Items.Add("Open LidGuard", null, (a, e) => ShowMain());
         menu.Items.Add(new ToolStripSeparator());
         var miExit = menu.Items.Add("Exit", null, (a, e) => Quit());
-        menu.Opening += (a, e) => { miLock.Enabled = miOpen.Enabled = miExit.Enabled = session == null; };
+        menu.Opening += (a, e) =>
+        {
+            miLock.Enabled = session == null && !work.Active;
+            miOpen.Enabled = miExit.Enabled = session == null;
+            miWork.Enabled = session == null && !work.Active;
+            miEndWork.Enabled = work.Active;
+            miEndWork.Text = "End session (" + work.Status + ")";
+        };
         tray = new NotifyIcon { Icon = AppIcon.Small, Text = "LidGuard", ContextMenuStrip = menu, Visible = true };
         tray.MouseClick += (a, e) => { if (e.Button == MouseButtons.Left) ShowMain(); };
 
@@ -617,6 +636,21 @@ class App : ApplicationContext
         return false;
     }
 
+    public bool WorkActive { get { return work.Active; } }
+    public string WorkStatus { get { return work.Status; } }
+    public void StartWork()
+    {
+        if (session != null) return;
+        if (work.Active) { work.End("Session ended."); return; }
+        foreach (Form f in Application.OpenForms) if (f.Modal) { f.Activate(); return; }
+        using (var dialog = new WorkSessionDialog())
+        {
+            if (dialog.ShowDialog(main) != DialogResult.OK) return;
+            try { work.Start(dialog.Options); }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "Could not start session", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        }
+    }
+
     public void SecureLock()
     {
         if (!Native.LockWorkStation())
@@ -625,10 +659,14 @@ class App : ApplicationContext
 
     public void Lock()
     {
-        if (session != null) return;
+        if (session != null || work.Active) return;
         // a dialog (e.g. change password) is open: bring it forward instead of locking over it
         foreach (Form f in Application.OpenForms) if (f.Modal) { f.Activate(); return; }
-        if (!Config.HasPassword) { ShowMain(); return; }
+        if (!Config.HasPassword)
+        {
+            using (var password = new PasswordDialog(false)) password.ShowDialog(main);
+            if (!Config.HasPassword) return;
+        }
         if (MessageBox.Show("Privacy cover hides the desktop but is not a Windows security lock. " +
             "Use the tray's Lock Windows securely command when you need Windows authentication.\n\nStart the privacy cover?",
             "Privacy cover", MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
@@ -651,6 +689,7 @@ class App : ApplicationContext
     {
         if (session != null) return;
         Quitting = true;
+        work.Dispose();
         msgWin.ClearHotkey();
         msgWin.DestroyHandle();
         tray.Visible = false;

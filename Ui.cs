@@ -558,8 +558,23 @@ class MainForm : Form
         status = new Chip("", "success");
         status.Location = new Point(pad, lockBtn.Bottom + Ui.S(12));
 
+        var workBtn = new RButton { Text = "Secure closed-lid session...", Font = Ui.F(10, "Semibold") };
+        workBtn.SetBounds(pad, status.Bottom + Ui.S(12), w, Ui.S(38));
+        workBtn.Click += (a, e) => app.StartWork();
+        var workStatus = Ui.Lbl(app.WorkStatus, Ui.F(9), "muted");
+        workStatus.SetBounds(pad, workBtn.Bottom + Ui.S(6), w, Ui.S(22));
+        var workTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+        workTimer.Tick += (a, e) =>
+        {
+            workStatus.Text = app.WorkStatus;
+            workBtn.Text = app.WorkActive ? "End secure work session" : "Secure closed-lid session...";
+        };
+        workTimer.Start();
+        Disposed += (a, e) => workTimer.Dispose();
+        Controls.AddRange(new Control[] { workBtn, workStatus });
+
         // settings
-        var settingsLbl = Section("SETTINGS", status.Bottom + Ui.S(26), pad);
+        var settingsLbl = Section("SETTINGS", workStatus.Bottom + Ui.S(16), pad);
         var settings = new Card();
         settings.SetBounds(pad, settingsLbl.Bottom + Ui.S(8), w, Ui.S(62) * 3);
         hotkey = new RButton { Chevron = true, Text = Config.Hotkey, Size = new Size(Ui.S(140), Ui.S(34)) };
@@ -631,7 +646,10 @@ class MainForm : Form
         foot.TextAlign = ContentAlignment.MiddleCenter;
 
         Controls.AddRange(new Control[] { pic, title, tagline, lockBtn, status, settings, security, personal, foot });
-        ClientSize = new Size(w + pad * 2, foot.Bottom + pad);
+        AutoScroll = true;
+        AutoScrollMinSize = new Size(0, foot.Bottom + pad);
+        ClientSize = new Size(w + pad * 2 + SystemInformation.VerticalScrollBarWidth,
+            Math.Min(foot.Bottom + pad, Screen.FromControl(this).WorkingArea.Height - Ui.S(80)));
 
         dark.CheckedChanged += (a, e) => { Config.Dark = dark.Checked; Config.Save(); ApplyTheme(); };
         startup.CheckedChanged += (a, e) => Startup.Set(startup.Checked);
@@ -658,16 +676,7 @@ class MainForm : Form
             app.Balloon("Still running in the tray." + (Config.Hotkey != "Off" ? " Press " + Config.Hotkey + " to lock." : ""));
         };
 
-        Shown += (a, e) =>
-        {
-            if (!Config.HasPassword)
-            {
-                using (var d = new PasswordDialog(false)) d.ShowDialog(this);
-                if (!Config.HasPassword) { app.Quit(); return; }
-            }
-            if (!Config.HasKey) using (var d = new KeyDialog(true)) d.ShowDialog(this);   // first run, or set up before secret keys existed
-            UpdateSecurity();
-        };
+
     }
 
     protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); Ui.TitleBar(this); }
