@@ -43,6 +43,7 @@ static class Native
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
     [DllImport("user32.dll")] public static extern bool LockWorkStation();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr wParam, IntPtr lParam, uint flags, uint timeout, out UIntPtr result);
     [DllImport("user32.dll")] public static extern bool SystemParametersInfo(uint action, uint param, int[] data, uint ini);
     public static readonly Guid LidSwitchState = new Guid("BA3E0F4D-B817-4094-A2D1-D56379E6A0F3");
     public static readonly Guid ConsoleDisplayState = new Guid("6FE69556-704A-47A0-8F24-C28D936FDA47");
@@ -361,16 +362,17 @@ static class Dnd
 {
     // the flag lets a later run turn it back off if LidGuard died while locked
     static readonly string Flag = Path.Combine(Config.Dir, "dnd.flag");
+    internal static bool HasPending { get { return File.Exists(Flag); } }
 
-    static void Run(string arg)
+    static bool Run(string arg)
     {
         try
         {
             var psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "PresentationSettings.exe"), arg) { UseShellExecute = false, CreateNoWindow = true };
             // PresentationSettings may stay running; don't wait on it
-            using (Process.Start(psi)) { }
+            using (var process = Process.Start(psi)) return process != null;
         }
-        catch { }
+        catch { return false; }
     }
 
     public static void On()
@@ -383,7 +385,7 @@ static class Dnd
     public static void Off()
     {
         if (!File.Exists(Flag)) return;
-        Run("/stop");
+        if (!Run("/stop")) return;
         try { File.Delete(Flag); } catch { }
     }
 }
@@ -596,6 +598,9 @@ class App : ApplicationContext
         menu.Items.Add("Lock Windows securely", null, (a, e) => SecureLock());
         var miWork = menu.Items.Add("Secure closed-lid session...", null, (a, e) => StartWork());
         var miEndWork = menu.Items.Add("End work session", null, (a, e) => work.End("Session ended."));
+        var miRecovery = menu.Items.Add("Retry recovery", null, (a, e) => RetryRecovery());
+        var miRecoveryStatus = menu.Items.Add("", null);
+        miRecoveryStatus.Enabled = false;
         var miOpen = menu.Items.Add("Open LidGuard", null, (a, e) => ShowMain());
         menu.Items.Add(new ToolStripSeparator());
         var miExit = menu.Items.Add("Exit", null, (a, e) => Quit());
@@ -605,6 +610,8 @@ class App : ApplicationContext
             miOpen.Enabled = miExit.Enabled = session == null;
             miWork.Enabled = session == null && !work.Active;
             miEndWork.Enabled = work.Active;
+            miRecovery.Enabled = CanRetryRecovery;
+            miRecoveryStatus.Text = RecoveryStatus;
             miEndWork.Text = "End session (" + work.Status + ")";
         };
         tray = new NotifyIcon { Icon = AppIcon.Small, Text = "LidGuard", ContextMenuStrip = menu, Visible = true };
@@ -634,6 +641,32 @@ class App : ApplicationContext
         if (interactive) MessageBox.Show(msg, "LidGuard", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         else Balloon(msg);
         return false;
+    }
+
+    public bool CanRetryRecovery { get { return session == null && !work.Active && (Power.HasPending || Guard.Engaged || Dnd.HasPending); } }
+    public string RecoveryStatus
+    {
+        get
+        {
+            if (session != null || work.Active) return "Settings will restore when the session ends";
+            var pending = new List<string>();
+            if (Power.HasPending) pending.Add("power");
+            if (Guard.Engaged) pending.Add("desktop controls");
+            if (Dnd.HasPending) pending.Add("notifications");
+            return pending.Count == 0 ? "No recovery needed" : "Recovery needed: " + string.Join(", ", pending);
+        }
+    }
+    public void RetryRecovery()
+    {
+        if (!CanRetryRecovery) return;
+        try
+        {
+            work.RetryRecovery();
+            Guard.Release();
+            Dnd.Off();
+            Balloon(CanRetryRecovery ? "Recovery is incomplete. Saved recovery files are preserved; see README for manual recovery." : "Recovery complete. Settings restored.");
+        }
+        catch (Exception ex) { Balloon("Recovery could not finish: " + ex.Message); }
     }
 
     public bool WorkActive { get { return work.Active; } }

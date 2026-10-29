@@ -563,18 +563,30 @@ class MainForm : Form
         workBtn.Click += (a, e) => app.StartWork();
         var workStatus = Ui.Lbl(app.WorkStatus, Ui.F(9), "muted");
         workStatus.SetBounds(pad, workBtn.Bottom + Ui.S(6), w, Ui.S(22));
+        var recoveryStatus = Ui.Lbl(app.RecoveryStatus, Ui.F(9), "muted");
+        recoveryStatus.SetBounds(pad, workStatus.Bottom + Ui.S(4), w, Ui.S(22));
+        var retryRecovery = new RButton { Text = "Retry recovery", Font = Ui.F(10), Enabled = app.CanRetryRecovery };
+        retryRecovery.SetBounds(pad, recoveryStatus.Bottom + Ui.S(6), w, Ui.S(34));
+        retryRecovery.Click += (a, e) =>
+        {
+            app.RetryRecovery();
+            recoveryStatus.Text = app.RecoveryStatus;
+            retryRecovery.Enabled = app.CanRetryRecovery;
+        };
         var workTimer = new System.Windows.Forms.Timer { Interval = 1000 };
         workTimer.Tick += (a, e) =>
         {
             workStatus.Text = app.WorkStatus;
+            recoveryStatus.Text = app.RecoveryStatus;
+            retryRecovery.Enabled = app.CanRetryRecovery;
             workBtn.Text = app.WorkActive ? "End secure work session" : "Secure closed-lid session...";
         };
         workTimer.Start();
         Disposed += (a, e) => workTimer.Dispose();
-        Controls.AddRange(new Control[] { workBtn, workStatus });
+        Controls.AddRange(new Control[] { workBtn, workStatus, recoveryStatus, retryRecovery });
 
         // settings
-        var settingsLbl = Section("SETTINGS", workStatus.Bottom + Ui.S(16), pad);
+        var settingsLbl = Section("SETTINGS", retryRecovery.Bottom + Ui.S(16), pad);
         var settings = new Card();
         settings.SetBounds(pad, settingsLbl.Bottom + Ui.S(8), w, Ui.S(62) * 3);
         hotkey = new RButton { Chevron = true, Text = Config.Hotkey, Size = new Size(Ui.S(140), Ui.S(34)) };

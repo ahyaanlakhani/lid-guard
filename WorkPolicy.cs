@@ -6,13 +6,15 @@ internal sealed class WorkPolicy
     internal readonly TimeSpan Duration;
     internal readonly bool PluggedInOnly;
     internal readonly int MinimumBattery;
-    internal WorkPolicy(int minutes, bool pluggedInOnly, int minimumBattery)
+    internal readonly bool TurnOffDisplays;
+    internal WorkPolicy(int minutes, bool pluggedInOnly, int minimumBattery, bool turnOffDisplays = false)
     {
         if (minutes < 1 || minutes > 1440) throw new ArgumentOutOfRangeException("minutes");
         if (minimumBattery < 10 || minimumBattery > 90) throw new ArgumentOutOfRangeException("minimumBattery");
         Duration = TimeSpan.FromMinutes(minutes);
         PluggedInOnly = pluggedInOnly;
         MinimumBattery = minimumBattery;
+        TurnOffDisplays = turnOffDisplays;
     }
 
     internal string StopReason(TimeSpan elapsed, bool? pluggedIn, int? batteryPercent)

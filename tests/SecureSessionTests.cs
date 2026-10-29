@@ -6,14 +6,16 @@ class SessionPlatform : ISecureWorkPlatform
 {
     internal bool Pending, FailRestore, RejectLock, RejectAwake, FailMonitor, Awake;
     internal bool Plugged = true;
+    internal bool RejectDisplays;
     internal Guid Plan = Guid.NewGuid();
-    internal int Entries, Locks, Monitors, Stops;
+    internal int Entries, Locks, Monitors, Stops, DisplayRequests, Restores;
     public bool RecoveryPending { get { return Pending; } }
     public Guid ActivePlan { get { return Plan; } }
     public void EnterPower() { Entries++; Pending = true; }
-    public void Restore() { if (!FailRestore) Pending = false; }
+    public void Restore() { Restores++; if (!FailRestore) Pending = false; }
     public bool KeepAwake(bool enabled) { Awake = enabled && !RejectAwake; return !enabled || !RejectAwake; }
     public bool LockWindows() { Locks++; return !RejectLock; }
+    public bool TurnOffDisplays(IntPtr window) { DisplayRequests++; return !RejectDisplays; }
     class Watcher : IDisposable
     {
         readonly Action stop;
@@ -41,9 +43,12 @@ class SecureSessionTests
         {
             session.Start(options);
             Assert(session.Active && api.Pending && api.Awake && api.Locks == 1, "secure start holds power override and requests Windows lock");
+            int restores = api.Restores;
+            Assert(!session.RetryRecovery() && api.Restores == restores && api.Pending, "retry cannot interrupt active session");
             session.ObserveSession(SessionSwitchReason.SessionLock);
             session.CheckAt(TimeSpan.FromSeconds(16));
             Assert(session.Active, "confirmed lock keeps session running");
+            Assert(api.DisplayRequests == 0, "display-off remains opt-in");
             session.ObserveSession(SessionSwitchReason.SessionUnlock);
             Assert(!session.Active && !api.Pending && !api.Awake && api.Stops == 1, "Windows unlock restores power and releases monitor");
             session.Start(options); session.ObserveSession(SessionSwitchReason.SessionLock);
@@ -69,7 +74,28 @@ class SecureSessionTests
             Assert(session.Status == "Recovery needs attention" && api.Pending, "failed restore remains visible");
             int entries = api.Entries; Reject(() => session.Start(options));
             Assert(api.Entries == entries, "unresolved recovery blocks new power override");
+            Assert(!session.RetryRecovery() && api.Pending, "failed retry preserves recovery state");
             api.FailRestore = false;
+            Assert(session.RetryRecovery() && !api.Pending, "successful retry clears recovery state");
+            var displays = new WorkPolicy(2, true, 20, true);
+            session.Start(displays);
+            Assert(api.DisplayRequests == 0, "displays stay on until Windows confirms lock");
+            session.ObserveSession(SessionSwitchReason.SessionLock);
+            Assert(api.DisplayRequests == 1 && session.Active && api.Awake, "display request runs after lock without ending awake session");
+            session.ObserveSession(SessionSwitchReason.SessionLock);
+            Assert(api.DisplayRequests == 1, "duplicate lock notifications do not turn displays off again");
+            session.ObserveSession(SessionSwitchReason.SessionUnlock);
+            session.ObserveSession(SessionSwitchReason.SessionLock);
+            Assert(api.DisplayRequests == 1, "late lock notification after unlock cannot turn displays off");
+            api.RejectDisplays = true;
+            session.Start(displays); session.ObserveSession(SessionSwitchReason.SessionLock);
+            Assert(session.Active && api.Awake && api.Pending, "display-off failure preserves secure work session");
+            session.End(null);
+            api.RejectLock = true;
+            int requests = api.DisplayRequests;
+            Reject(() => session.Start(displays));
+            session.ObserveSession(SessionSwitchReason.SessionLock);
+            Assert(api.DisplayRequests == requests, "rejected lock never requests display-off");
         }
         Assert(!api.Pending && !api.Awake, "disposing releases remaining recovery state");
         if (args.Length > 0)

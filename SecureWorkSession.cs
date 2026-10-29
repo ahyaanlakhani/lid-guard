@@ -11,6 +11,7 @@ internal interface ISecureWorkPlatform
     void Restore();
     bool KeepAwake(bool enabled);
     bool LockWindows();
+    bool TurnOffDisplays(IntPtr window);
     IDisposable Monitor();
     string BatteryReason(WorkPolicy policy, TimeSpan elapsed);
 }
@@ -26,6 +27,13 @@ internal sealed class WindowsWorkPlatform : ISecureWorkPlatform
         return Native.SetThreadExecutionState(Native.ES_CONTINUOUS | (enabled ? Native.ES_SYSTEM_REQUIRED : 0)) != 0;
     }
     public bool LockWindows() { return Native.LockWorkStation(); }
+    public bool TurnOffDisplays(IntPtr window)
+    {
+        UIntPtr result;
+        // Target our helper window, whose default procedure handles SC_MONITORPOWER.
+        // Broadcasting would let every unresponsive app consume a separate timeout.
+        return Native.SendMessageTimeout(window, 0x0112, (UIntPtr)0xF170, (IntPtr)2, 2, 1000, out result) != IntPtr.Zero;
+    }
     sealed class MonitorProcess : IDisposable
     {
         readonly Process process;
@@ -61,7 +69,8 @@ internal sealed class WindowsWorkPlatform : ISecureWorkPlatform
 // only holds the temporary power override and releases it on every end path.
 internal sealed class SecureWorkSession : IDisposable
 {
-    readonly Control dispatch = new Control();
+    // A hidden top-level window also receives the monitor-power system command.
+    readonly Control dispatch = new Form { ShowInTaskbar = false, FormBorderStyle = FormBorderStyle.None };
     readonly Timer timer = new Timer { Interval = 1000 };
     readonly Action<string> report;
     readonly Stopwatch elapsed = new Stopwatch();
@@ -138,7 +147,18 @@ internal sealed class SecureWorkSession : IDisposable
     internal void ObserveSession(SessionSwitchReason reason)
     {
         if (!Active) return;
-        if (reason == SessionSwitchReason.SessionLock) lockConfirmed = true;
+        if (reason == SessionSwitchReason.SessionLock && !lockConfirmed)
+        {
+            lockConfirmed = true;
+            if (policy.TurnOffDisplays)
+            {
+                try
+                {
+                    if (!platform.TurnOffDisplays(dispatch.Handle)) report("Windows could not accept the display-off request. The secure session is still active.");
+                }
+                catch { report("Display-off is unavailable. The secure session is still active."); }
+            }
+        }
         if (reason == SessionSwitchReason.SessionUnlock || reason == SessionSwitchReason.SessionLogoff)
             End("Windows sign-in ended the work session.");
     }
@@ -154,6 +174,14 @@ internal sealed class SecureWorkSession : IDisposable
         if (reason != null) End(reason);
     }
 
+    internal bool RetryRecovery()
+    {
+        // A recovery journal is expected during a live session. Never restore it early.
+        if (Active) return false;
+        platform.Restore();
+        return !platform.RecoveryPending;
+    }
+
     internal void End(string reason)
     {
         Active = false;
@@ -162,7 +190,7 @@ internal sealed class SecureWorkSession : IDisposable
         platform.KeepAwake(false);
         platform.Restore();
         if (watchdog != null) { watchdog.Dispose(); watchdog = null; }
-        if (platform.RecoveryPending) report("Power recovery is incomplete. Recovery files have been preserved. Exit and retry recovery before starting another session.");
+        if (platform.RecoveryPending) report("Power recovery is incomplete. Recovery files have been preserved. Use Retry recovery before starting another session.");
         else if (reason != null) report(reason + " Normal power settings restored.");
     }
 
@@ -190,7 +218,7 @@ internal sealed class WorkSessionDialog : Form
         StartPosition = FormStartPosition.CenterParent;
         MaximizeBox = MinimizeBox = false;
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new System.Drawing.Size(440, 300);
+        ClientSize = new System.Drawing.Size(440, 345);
         var intro = new Label { Text = "Keep work running with the lid closed and lock Windows.\nSign-in, the timer, or battery rules end the power override.", AutoSize = false };
         intro.SetBounds(20, 18, 400, 45);
         var durationLabel = new Label { Text = "Duration (minutes, up to 24 hours)", AutoSize = true };
@@ -204,12 +232,14 @@ internal sealed class WorkSessionDialog : Form
         var battery = new NumericUpDown { Minimum = 10, Maximum = 90, Value = 20, Enabled = false };
         battery.SetBounds(320, 162, 95, 26);
         plugged.CheckedChanged += (s, e) => battery.Enabled = !plugged.Checked;
+        var displays = new CheckBox { Text = "Turn off displays after Windows locks", AutoSize = true };
+        displays.SetBounds(20, 204, 395, 26);
         var start = new Button { Text = "Start and lock Windows" };
-        start.SetBounds(20, 231, 235, 36);
-        start.Click += (s, e) => { Options = new WorkPolicy((int)duration.Value, plugged.Checked, (int)battery.Value); DialogResult = DialogResult.OK; };
+        start.SetBounds(20, 276, 235, 36);
+        start.Click += (s, e) => { Options = new WorkPolicy((int)duration.Value, plugged.Checked, (int)battery.Value, displays.Checked); DialogResult = DialogResult.OK; };
         var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel };
-        cancel.SetBounds(305, 231, 110, 36);
-        Controls.AddRange(new Control[] { intro, durationLabel, duration, plugged, batteryLabel, battery, start, cancel });
+        cancel.SetBounds(305, 276, 110, 36);
+        Controls.AddRange(new Control[] { intro, durationLabel, duration, plugged, batteryLabel, battery, displays, start, cancel });
         AcceptButton = start; CancelButton = cancel;
     }
 }

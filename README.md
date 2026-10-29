@@ -35,6 +35,8 @@ Set a password for the privacy cover. The default shortcut is Ctrl+L, which can 
 
 Choose **Secure closed-lid session...** in the window or tray. Select a duration from 1 minute to 24 hours (default: two hours). **Only while plugged in** is enabled by default: disconnecting the charger ends the override on the next check. Disable it to allow battery operation and choose a cutoff from 10% to 90% (default: 20%). Unknown power-source information, or unknown battery charge while on battery, prevents or ends a session.
 
+The optional **Turn off displays after Windows locks** checkbox requests display power-off once Windows confirms the session is locked. It is off by default. Normal keyboard/mouse activity can wake the display; Windows authentication still applies. Display power behavior depends on Windows and the monitor driver. If the request fails, the secure work session continues.
+
 **Start and lock Windows** applies the temporary power settings and requests the Windows lock screen. It requires Windows authentication; no separate cover password is needed. The window shows remaining minutes, and the window/tray offers **End session**.
 
 Signing back in, reaching the duration, reaching the battery cutoff, unplugging in AC-only mode, changing power plans, or exiting LidGuard ends the override and restores saved power settings. The app checks once per second; busy Windows or a suspended machine can delay a check. Ending a session restores normal Windows power behavior; it does not force sleep or unlock Windows. The existing Windows policies determine when the laptop sleeps afterward.
@@ -42,6 +44,10 @@ Signing back in, reaching the duration, reaching the battery cutoff, unplugging 
 A helper process retries restoration if LidGuard crashes. If Windows does not confirm locking within 15 seconds, the session cancels and restores settings. Startup/recovery retries any remaining power journal. A failed restore is shown as **Recovery needs attention** and blocks new sessions. Privacy cover and secure work sessions cannot run together.
 
 Session choices apply to that session and are not saved as personal preferences. Battery rules and timing currently apply to secure work sessions; the decorative privacy cover retains its existing behavior.
+
+## Recovery status
+
+The window and tray show **No recovery needed**, explain that an active session will restore its settings on completion, or list the settings needing recovery: power, desktop controls, and notifications. **Retry recovery** is available in both places when saved state remains and no cover or work session is active. It retries restoration without restarting the app. Failed restoration preserves recovery files; legacy power journals still require the manual steps below. A failed launch of notification restoration also retains its flag for another retry.
 
 ## Recovery and uninstall
 
@@ -73,7 +79,7 @@ Older three-value journals have no plan GUID. Automatic recovery preserves these
 .\tests\run.ps1
 ```
 
-The tests use simulated power and Windows session operations; they never change machine power settings or lock Windows. They cover plan switching, original values, failed writes, corrupt journals, legacy recovery files, timer boundaries, charger changes, battery cutoffs, missing telemetry, Windows sign-in, lock confirmation, lock/monitor startup failures, and session cleanup. GitHub Actions builds and runs these tests on Windows.
+The tests use simulated power and Windows session operations; they never change machine power settings or lock Windows. They cover plan switching, original values, failed writes, corrupt journals, legacy recovery files, timer boundaries, charger changes, battery cutoffs, missing telemetry, Windows sign-in, lock confirmation, lock/monitor startup failures, session cleanup, recovery retries, and display-off requests after lock confirmation. GitHub Actions builds and runs these tests on Windows.
 
 Before a release, manually verify on a test machine: lid close/open on AC and battery, multi-monitor changes, cover unlock, process crash/watchdog recovery, failed restoration, installation/uninstall, Windows lock/sign-in, secure session timeout, charger disconnect, battery threshold, lock failure, and crash recovery during a secure session. Automated checks do not exercise those desktop interactions.
 
