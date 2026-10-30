@@ -11,7 +11,8 @@ if ($LASTEXITCODE) { throw 'Work policy test compilation failed' }
 & "$PSScriptRoot\..\bin\WorkPolicyTests.exe"
 if ($LASTEXITCODE) { throw 'Work policy tests failed' }
 
-& $csc /nologo /target:exe /main:SecureSessionTests "/out:$PSScriptRoot\..\bin\SecureSessionTests.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll "$PSScriptRoot\..\WorkPolicy.cs" "$PSScriptRoot\..\SecureWorkSession.cs" "$PSScriptRoot\..\PowerRecovery.cs" "$PSScriptRoot\..\Program.cs" "$PSScriptRoot\..\Ui.cs" "$PSScriptRoot\..\LockScreen.cs" "$PSScriptRoot\..\VideoWallpaper.cs" "$PSScriptRoot\SecureSessionTests.cs"
+& $csc /nologo /target:exe /main:SecureSessionTests "/out:$PSScriptRoot\..\bin\SecureSessionTests.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll "$PSScriptRoot\..\AgentWatch.cs" "$PSScriptRoot\..\WorkPolicy.cs" "$PSScriptRoot\..\SecureWorkSession.cs" "$PSScriptRoot\..\PowerRecovery.cs" "$PSScriptRoot\..\Program.cs" "$PSScriptRoot\..\Ui.cs" "$PSScriptRoot\..\LockScreen.cs" "$PSScriptRoot\..\VideoWallpaper.cs" "$PSScriptRoot\SecureSessionTests.cs"
 if ($LASTEXITCODE) { throw 'Session test compilation failed' }
 & "$PSScriptRoot\..\bin\SecureSessionTests.exe"
 if ($LASTEXITCODE) { throw 'Secure session tests failed' }
+

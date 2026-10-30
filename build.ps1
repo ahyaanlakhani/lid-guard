@@ -1,4 +1,4 @@
-﻿# Builds LidGuard and installs it for the current user.
+# Builds LidGuard and installs it for the current user.
 #   .\build.ps1             build, install, start
 #   .\build.ps1 -NoInstall  build only (output in .\bin)
 param([switch]$NoInstall)
@@ -13,7 +13,7 @@ if ($LASTEXITCODE) { throw 'IconGen failed to compile' }
 & "$bin\IconGen.exe" "$bin\LidGuard.ico" "$bin\icon-preview.png"
 if ($LASTEXITCODE) { throw 'IconGen failed' }
 
-& $csc /nologo /target:winexe /codepage:65001 "/out:$bin\LidGuard.exe" "/win32icon:$bin\LidGuard.ico" "/resource:$bin\LidGuard.ico,LidGuard.ico" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll "$PSScriptRoot\WorkPolicy.cs" "$PSScriptRoot\SecureWorkSession.cs" "$PSScriptRoot\PowerRecovery.cs" "$PSScriptRoot\Program.cs" "$PSScriptRoot\Ui.cs" "$PSScriptRoot\LockScreen.cs" "$PSScriptRoot\VideoWallpaper.cs"
+& $csc /nologo /target:winexe /codepage:65001 "/out:$bin\LidGuard.exe" "/win32icon:$bin\LidGuard.ico" "/resource:$bin\LidGuard.ico,LidGuard.ico" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll "$PSScriptRoot\AgentWatch.cs" "$PSScriptRoot\WorkPolicy.cs" "$PSScriptRoot\SecureWorkSession.cs" "$PSScriptRoot\PowerRecovery.cs" "$PSScriptRoot\Program.cs" "$PSScriptRoot\Ui.cs" "$PSScriptRoot\LockScreen.cs" "$PSScriptRoot\VideoWallpaper.cs"
 if ($LASTEXITCODE) { throw 'LidGuard failed to compile' }
 Write-Host "Built $bin\LidGuard.exe"
 if ($NoInstall) { return }
@@ -40,5 +40,7 @@ Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name Lid
 
 Start-Process $exe
 Write-Host "Installed to $dest - starts with Windows, Start menu + desktop shortcuts created."
+
+
 
 
