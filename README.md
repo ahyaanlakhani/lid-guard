@@ -1,6 +1,23 @@
 # LidGuard
 
+<p align="center">
+  <img src="docs/hero.png" alt="LidGuard: lock the screen, keep the PC running with the lid closed, and for as long as your AI agents are working">
+</p>
+
 A Windows tray utility for timed, secure closed-lid work sessions, Windows locking, and a customizable privacy cover.
+
+## How to use
+
+<p align="center">
+  <img src="docs/steps.png" alt="Four steps: open LidGuard, pick a mode, start a session, close the lid">
+</p>
+
+1. **Open LidGuard** from the tray. Set your password and a secret key once.
+2. **Pick a mode** under Settings. Privacy locks Windows for work sessions. Casual keeps the PC awake and never locks.
+3. **Start a session** with *Secure closed-lid session...* (Privacy) or *Keep awake while agents work...* (Casual). Choose the time, the battery rule, and whether it ends when agents go quiet.
+4. **Close the lid.** Work carries on. When the time is up or agents go quiet, your power settings come back.
+
+Ctrl+L locks at any time. Your settings are restored on unlock, after a crash, or on exit.
 
 ## Choose the right action
 
@@ -44,6 +61,25 @@ Signing back in, reaching the duration, reaching the battery cutoff, unplugging 
 A helper process retries restoration if LidGuard crashes. If Windows does not confirm locking within 15 seconds, the session cancels and restores settings. Startup/recovery retries any remaining power journal. A failed restore is shown as **Recovery needs attention** and blocks new sessions. Privacy cover and secure work sessions cannot run together.
 
 Session choices apply to that session and are not saved as personal preferences. Battery rules and timing currently apply to secure work sessions; the decorative privacy cover retains its existing behavior.
+
+## Modes
+
+Settings → **Mode** chooses what a work session does:
+
+- **Privacy** (default): a work session locks Windows and can turn off displays, for people who need the desktop protected.
+- **Casual**: a work session only keeps the PC awake with the lid closed. Nothing is locked, so anyone who opens the lid can use the desktop. The main button reads **Keep awake while agents work...**.
+
+Both modes use the same timer, battery rules and power recovery.
+
+## Agent activity
+
+Work sessions can end when agents go quiet. Tick **End when no agent has been working for** (1–240 minutes, default 10). LidGuard watches three kinds of agent process:
+
+- Claude Code's CLI, when it runs from its Claude Code install folder. The Claude desktop app's own `claude.exe` is ignored.
+- `codex.exe` and `gemini.exe`.
+- A `node`, `python` or shell process started with the `@anthropic-ai/claude-code`, `@openai/codex` or Gemini CLI package.
+
+An agent counts as **busy** when its process and everything it started used at least 2% of one CPU core in each of two 3-second samples in a row, so a short spike does not count. An open but idle agent doesn't count, and neither does a process that merely exists. A tool, script or dev server started by an agent counts as agent work while it uses CPU, so a long-running background process keeps the session going. Detection is a heuristic: it can't see whether an agent is waiting on you, and it reads process CPU, not model activity.
 
 ## Recovery status
 
