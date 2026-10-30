@@ -31,6 +31,18 @@ class WorkPolicyTests
         catch (ArgumentOutOfRangeException) { passed++; }
         try { new WorkPolicy(30, false, 91); throw new Exception("expected rejection"); }
         catch (ArgumentOutOfRangeException) { passed++; }
+        var casual = new WorkPolicy(60, false, 20, false, false);
+        Assert(!casual.LockWindows && casual.StopReason(TimeSpan.FromMinutes(59), true, 80) == null, "casual session never needs a Windows lock");
+        var quiet = new WorkPolicy(120, true, 20, false, true, 10);
+        Assert(quiet.AgentStopReason(TimeSpan.FromMinutes(9)) == null, "agents may be quiet for less than the chosen period");
+        Assert(quiet.AgentStopReason(TimeSpan.FromMinutes(10)) != null, "agent quiet period ends the session at the exact minute");
+        Assert(ac.AgentStopReason(TimeSpan.FromHours(5)) == null, "no quiet period means agents never end the session");
+        bool rejected = false;
+        try { new WorkPolicy(5, true, 20, true, false); } catch (ArgumentException) { rejected = true; }
+        Assert(rejected, "casual session cannot turn displays off");
+        rejected = false;
+        try { new WorkPolicy(5, true, 20, false, true, 241); } catch (ArgumentOutOfRangeException) { rejected = true; }
+        Assert(rejected, "agent quiet period is capped at four hours");
         Console.WriteLine(passed + " work-policy checks passed.");
     }
 }

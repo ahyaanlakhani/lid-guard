@@ -14,6 +14,8 @@ internal interface ISecureWorkPlatform
     bool TurnOffDisplays(IntPtr window);
     IDisposable Monitor();
     string BatteryReason(WorkPolicy policy, TimeSpan elapsed);
+    void WatchAgents(bool on);
+    bool AgentsWorking { get; }
 }
 
 internal sealed class WindowsWorkPlatform : ISecureWorkPlatform
@@ -27,6 +29,13 @@ internal sealed class WindowsWorkPlatform : ISecureWorkPlatform
         return Native.SetThreadExecutionState(Native.ES_CONTINUOUS | (enabled ? Native.ES_SYSTEM_REQUIRED : 0)) != 0;
     }
     public bool LockWindows() { return Native.LockWorkStation(); }
+    AgentWatch agents;
+    public void WatchAgents(bool on)
+    {
+        if (on && agents == null) agents = new AgentWatch();
+        if (!on && agents != null) { agents.Dispose(); agents = null; }
+    }
+    public bool AgentsWorking { get { return agents != null && agents.Busy; } }
     public bool TurnOffDisplays(IntPtr window)
     {
         UIntPtr result;
@@ -79,6 +88,7 @@ internal sealed class SecureWorkSession : IDisposable
     readonly ISecureWorkPlatform platform;
     Guid plan;
     bool lockConfirmed;
+    TimeSpan lastAgentBusy;
     internal bool Active { get; private set; }
     internal string Status
     {
@@ -110,6 +120,7 @@ internal sealed class SecureWorkSession : IDisposable
         if (platform.RecoveryPending) throw new InvalidOperationException("Restore the previous power settings before starting a session.");
         policy = options;
         lockConfirmed = false;
+        lastAgentBusy = TimeSpan.Zero;
         try
         {
             platform.EnterPower();
@@ -120,7 +131,8 @@ internal sealed class SecureWorkSession : IDisposable
             Active = true;
             elapsed.Restart();
             timer.Start();
-            if (!platform.LockWindows()) throw new InvalidOperationException("Windows could not lock the session.");
+            platform.WatchAgents(options.AgentQuietMinutes > 0);
+            if (options.LockWindows && !platform.LockWindows()) throw new InvalidOperationException("Windows could not lock the session.");
         }
         catch
         {
@@ -168,9 +180,14 @@ internal sealed class SecureWorkSession : IDisposable
     {
         if (!Active) return;
         string reason = platform.BatteryReason(policy, time);
-        if (!lockConfirmed && time >= TimeSpan.FromSeconds(15)) reason = "Windows locking was not confirmed.";
+        if (policy.LockWindows && !lockConfirmed && time >= TimeSpan.FromSeconds(15)) reason = "Windows locking was not confirmed.";
         try { if (platform.ActivePlan != plan) reason = "The active power plan changed."; }
         catch { reason = "Power settings could not be checked."; }
+        if (policy.AgentQuietMinutes > 0)
+        {
+            if (platform.AgentsWorking) lastAgentBusy = time;
+            if (reason == null) reason = policy.AgentStopReason(time - lastAgentBusy);
+        }
         if (reason != null) End(reason);
     }
 
@@ -187,6 +204,7 @@ internal sealed class SecureWorkSession : IDisposable
         Active = false;
         timer.Stop();
         elapsed.Stop();
+        platform.WatchAgents(false);
         platform.KeepAwake(false);
         platform.Restore();
         if (watchdog != null) { watchdog.Dispose(); watchdog = null; }
@@ -211,15 +229,22 @@ internal sealed class SecureWorkSession : IDisposable
 internal sealed class WorkSessionDialog : Form
 {
     internal WorkPolicy Options { get; private set; }
-    internal WorkSessionDialog()
+    // privacy: lock Windows and offer display-off. casual: keep the PC awake with no lock.
+    internal WorkSessionDialog(bool privacy)
     {
-        Text = "Secure closed-lid session";
+        Text = privacy ? "Secure closed-lid session" : "Keep awake while agents work";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterParent;
         MaximizeBox = MinimizeBox = false;
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new System.Drawing.Size(440, 345);
-        var intro = new Label { Text = "Keep work running with the lid closed and lock Windows.\nSign-in, the timer, or battery rules end the power override.", AutoSize = false };
+        ClientSize = new System.Drawing.Size(440, 380);
+        var intro = new Label
+        {
+            Text = privacy
+                ? "Keep work running with the lid closed and lock Windows.\nSign-in, the timer, or battery rules end the power override."
+                : "Keeps this PC awake with the lid closed while your agents work. Nothing is locked: anyone who opens the lid can use the desktop.",
+            AutoSize = false
+        };
         intro.SetBounds(20, 18, 400, 45);
         var durationLabel = new Label { Text = "Duration (minutes, up to 24 hours)", AutoSize = true };
         durationLabel.SetBounds(20, 78, 290, 23);
@@ -232,14 +257,26 @@ internal sealed class WorkSessionDialog : Form
         var battery = new NumericUpDown { Minimum = 10, Maximum = 90, Value = 20, Enabled = false };
         battery.SetBounds(320, 162, 95, 26);
         plugged.CheckedChanged += (s, e) => battery.Enabled = !plugged.Checked;
-        var displays = new CheckBox { Text = "Turn off displays after Windows locks", AutoSize = true };
+        var displays = new CheckBox { Text = "Turn off displays after Windows locks", AutoSize = true, Visible = privacy };
         displays.SetBounds(20, 204, 395, 26);
-        var start = new Button { Text = "Start and lock Windows" };
-        start.SetBounds(20, 276, 235, 36);
-        start.Click += (s, e) => { Options = new WorkPolicy((int)duration.Value, plugged.Checked, (int)battery.Value, displays.Checked); DialogResult = DialogResult.OK; };
+        var agents = new CheckBox { Text = "End when no agent has been working for", AutoSize = true, Checked = true };
+        agents.SetBounds(20, 240, 290, 26);
+        var quiet = new NumericUpDown { Minimum = 1, Maximum = 240, Value = 10 };
+        quiet.SetBounds(320, 236, 95, 26);
+        var agentNote = Ui.Lbl("Counts Claude Code, Codex and Gemini CLI while they use the CPU.", Ui.F(9), "muted");
+        agentNote.SetBounds(20, 268, 400, 22);
+        agents.CheckedChanged += (s, e) => quiet.Enabled = agents.Checked;
+        var start = new Button { Text = privacy ? "Start and lock Windows" : "Start keep-awake session" };
+        start.SetBounds(20, 318, 235, 36);
+        start.Click += (s, e) =>
+        {
+            Options = new WorkPolicy((int)duration.Value, plugged.Checked, (int)battery.Value,
+                privacy && displays.Checked, privacy, agents.Checked ? (int)quiet.Value : 0);
+            DialogResult = DialogResult.OK;
+        };
         var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel };
-        cancel.SetBounds(305, 276, 110, 36);
-        Controls.AddRange(new Control[] { intro, durationLabel, duration, plugged, batteryLabel, battery, displays, start, cancel });
+        cancel.SetBounds(305, 318, 110, 36);
+        Controls.AddRange(new Control[] { intro, durationLabel, duration, plugged, batteryLabel, battery, displays, agents, quiet, agentNote, start, cancel });
         AcceptButton = start; CancelButton = cancel;
     }
 }

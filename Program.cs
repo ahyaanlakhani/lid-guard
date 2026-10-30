@@ -135,6 +135,9 @@ static class Config
     // lock screen personalisation
     public static string Name = "", Note = "Back soon", City = "", Video = "", VideoSections = "", Wallpaper = "", VideoLoop = "", VideoLoopKey = "";   // VideoLoop: the baked seamless clip   // Wallpaper: "builtin" or "video"
     public static string WallStyle = "Classic";   // which built-in wallpaper: see Wallpaper.Styles
+    // "privacy": work sessions lock Windows (for privacy). "casual": work sessions only keep the PC awake.
+    public static string Mode = "privacy";
+    public static bool CasualMode { get { return Mode == "casual"; } }
     public static string WallpaperMode { get { return Wallpaper.Length > 0 ? Wallpaper : Video.Length > 0 ? "video" : "builtin"; } }
       // VideoSections: "3.4-7.01;15.2-16.41" plays just those parts, in order
     public static double Lat, Lon, VideoStart, VideoEnd, VideoSpeed = 1;   // loop only this part of the video (seconds; end 0 = to the end)
@@ -153,7 +156,7 @@ static class Config
                 if (k == "salt") salt = v; else if (k == "hash") hash = v; else if (k == "dark") Dark = v == "1";
                 else if (k == "ksalt") keySalt = v; else if (k == "khash") keyHash = v;
                 else if (k == "hotkey") Hotkey = v;
-                else if (k == "name") Name = v; else if (k == "note") Note = v; else if (k == "city") City = v; else if (k == "video") Video = v; else if (k == "videosections") VideoSections = v; else if (k == "wallpaper") Wallpaper = v == "journey" ? "builtin" : v; else if (k == "wallstyle") WallStyle = v; else if (k == "videoloop") VideoLoop = v; else if (k == "videoloopkey") VideoLoopKey = v;
+                else if (k == "name") Name = v; else if (k == "note") Note = v; else if (k == "city") City = v; else if (k == "video") Video = v; else if (k == "videosections") VideoSections = v; else if (k == "wallpaper") Wallpaper = v == "journey" ? "builtin" : v; else if (k == "wallstyle") WallStyle = v; else if (k == "mode") Mode = v == "casual" ? "casual" : "privacy"; else if (k == "videoloop") VideoLoop = v; else if (k == "videoloopkey") VideoLoopKey = v;
                 else if (k == "lat") double.TryParse(v, System.Globalization.NumberStyles.Float, inv, out Lat);
                 else if (k == "lon") double.TryParse(v, System.Globalization.NumberStyles.Float, inv, out Lon);
                 else if (k == "videostart") double.TryParse(v, System.Globalization.NumberStyles.Float, inv, out VideoStart);
@@ -173,7 +176,7 @@ static class Config
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         Directory.CreateDirectory(Dir);
         File.WriteAllLines(FilePath, new[] { "salt=" + salt, "hash=" + hash, "dark=" + (Dark ? "1" : "0"), "ksalt=" + keySalt, "khash=" + keyHash, "hotkey=" + Hotkey,
-            "name=" + Name, "note=" + Note, "city=" + City, "lat=" + Lat.ToString(inv), "lon=" + Lon.ToString(inv), "video=" + Video, "videostart=" + VideoStart.ToString(inv), "videoend=" + VideoEnd.ToString(inv), "videosections=" + VideoSections, "videospeed=" + VideoSpeed.ToString(inv), "wallpaper=" + Wallpaper, "wallstyle=" + WallStyle, "videoloop=" + VideoLoop, "videoloopkey=" + VideoLoopKey });
+            "name=" + Name, "note=" + Note, "city=" + City, "lat=" + Lat.ToString(inv), "lon=" + Lon.ToString(inv), "video=" + Video, "videostart=" + VideoStart.ToString(inv), "videoend=" + VideoEnd.ToString(inv), "videosections=" + VideoSections, "videospeed=" + VideoSpeed.ToString(inv), "wallpaper=" + Wallpaper, "wallstyle=" + WallStyle, "mode=" + Mode, "videoloop=" + VideoLoop, "videoloopkey=" + VideoLoopKey });
     }
 
     static byte[] Derive(string input, byte[] s)
@@ -676,7 +679,7 @@ class App : ApplicationContext
         if (session != null) return;
         if (work.Active) { work.End("Session ended."); return; }
         foreach (Form f in Application.OpenForms) if (f.Modal) { f.Activate(); return; }
-        using (var dialog = new WorkSessionDialog())
+        using (var dialog = new WorkSessionDialog(!Config.CasualMode))
         {
             if (dialog.ShowDialog(main) != DialogResult.OK) return;
             try { work.Start(dialog.Options); }

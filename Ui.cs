@@ -558,7 +558,7 @@ class MainForm : Form
         status = new Chip("", "success");
         status.Location = new Point(pad, lockBtn.Bottom + Ui.S(12));
 
-        var workBtn = new RButton { Text = "Secure closed-lid session...", Font = Ui.F(10, "Semibold") };
+        var workBtn = new RButton { Text = Config.CasualMode ? "Keep awake while agents work..." : "Secure closed-lid session...", Font = Ui.F(10, "Semibold") };
         workBtn.SetBounds(pad, status.Bottom + Ui.S(12), w, Ui.S(38));
         workBtn.Click += (a, e) => app.StartWork();
         var workStatus = Ui.Lbl(app.WorkStatus, Ui.F(9), "muted");
@@ -579,7 +579,7 @@ class MainForm : Form
             workStatus.Text = app.WorkStatus;
             recoveryStatus.Text = app.RecoveryStatus;
             retryRecovery.Enabled = app.CanRetryRecovery;
-            workBtn.Text = app.WorkActive ? "End secure work session" : "Secure closed-lid session...";
+            workBtn.Text = app.WorkActive ? "End work session" : Config.CasualMode ? "Keep awake while agents work..." : "Secure closed-lid session...";
         };
         workTimer.Start();
         Disposed += (a, e) => workTimer.Dispose();
@@ -588,7 +588,7 @@ class MainForm : Form
         // settings
         var settingsLbl = Section("SETTINGS", retryRecovery.Bottom + Ui.S(16), pad);
         var settings = new Card();
-        settings.SetBounds(pad, settingsLbl.Bottom + Ui.S(8), w, Ui.S(62) * 3);
+        settings.SetBounds(pad, settingsLbl.Bottom + Ui.S(8), w, Ui.S(62) * 4);
         hotkey = new RButton { Chevron = true, Text = Config.Hotkey, Size = new Size(Ui.S(140), Ui.S(34)) };
         hotkeyMenu = MenuRenderer.NewMenu();
         foreach (var name in Hotkeys.Names)
@@ -609,6 +609,24 @@ class MainForm : Form
         Row(settings, 0, "Lock shortcut", "Works from any app", hotkey);
         Row(settings, 1, "Dark mode", "Also used on the lock screen", dark);
         Row(settings, 2, "Start with Windows", "Keeps the shortcut ready after a restart", startup);
+
+        // mode: privacy locks Windows for work sessions; casual only keeps the PC awake
+        var modeBtn = new RButton { Chevron = true, Text = Config.CasualMode ? "Casual" : "Privacy", Size = new Size(Ui.S(140), Ui.S(34)) };
+        var modeMenu = MenuRenderer.NewMenu();
+        var modeSub = Row(settings, 3, "Mode", Config.CasualMode ? ModeCasualText : ModePrivacyText, modeBtn);
+        foreach (var choice in new[] { "privacy", "casual" })
+        {
+            string picked = choice;
+            modeMenu.Items.Add(picked == "casual" ? "Casual: no lock, keeps awake" : "Privacy: locks Windows", null, (a, e) =>
+            {
+                Config.Mode = picked;
+                Config.Save();
+                modeBtn.Text = Config.CasualMode ? "Casual" : "Privacy";
+                modeSub.Text = Config.CasualMode ? ModeCasualText : ModePrivacyText;
+                modeSub.Invalidate();
+            });
+        }
+        modeBtn.Click += (a, e) => modeMenu.Show(modeBtn, new Point(0, modeBtn.Height + Ui.S(4)));
 
         // security
         var securityLbl = Section("SECURITY", settings.Bottom + Ui.S(22), pad);
@@ -768,6 +786,9 @@ class MainForm : Form
             : "Loops, pauses with the lid shut";
         wallSub.Invalidate();
     }
+
+    const string ModePrivacyText = "Work sessions lock Windows, for privacy";
+    const string ModeCasualText = "Work sessions keep the PC awake, no lock";
 
     static RBox Input(string value, string placeholder)
     {

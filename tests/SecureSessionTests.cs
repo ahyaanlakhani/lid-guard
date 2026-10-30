@@ -16,6 +16,9 @@ class SessionPlatform : ISecureWorkPlatform
     public bool KeepAwake(bool enabled) { Awake = enabled && !RejectAwake; return !enabled || !RejectAwake; }
     public bool LockWindows() { Locks++; return !RejectLock; }
     public bool TurnOffDisplays(IntPtr window) { DisplayRequests++; return !RejectDisplays; }
+    internal bool Agents, Watching;
+    public void WatchAgents(bool on) { Watching = on; }
+    public bool AgentsWorking { get { return Watching && Agents; } }
     class Watcher : IDisposable
     {
         readonly Action stop;
@@ -96,12 +99,35 @@ class SecureSessionTests
             Reject(() => session.Start(displays));
             session.ObserveSession(SessionSwitchReason.SessionLock);
             Assert(api.DisplayRequests == requests, "rejected lock never requests display-off");
+            api.RejectLock = false;
+
+            // casual: keeps the PC awake without locking Windows
+            int locks = api.Locks;
+            session.Start(new WorkPolicy(60, false, 20, false, false));
+            Assert(session.Active && api.Awake && api.Pending && api.Locks == locks, "casual start keeps awake without locking Windows");
+            session.CheckAt(TimeSpan.FromSeconds(30));
+            Assert(session.Active, "casual session needs no lock confirmation");
+            session.End(null);
+            Assert(!session.Active && !api.Pending && !api.Awake && !api.Watching, "casual session releases power and agent watch");
+
+            // agent quiet period: busy agents keep the session going, then it ends after the chosen quiet time
+            api.Agents = true;
+            session.Start(new WorkPolicy(120, true, 20, false, false, 5));
+            Assert(api.Watching && session.Active, "agent watch starts with a quiet-period session");
+            session.CheckAt(TimeSpan.FromMinutes(4));
+            session.CheckAt(TimeSpan.FromMinutes(8));
+            Assert(session.Active, "busy agents keep a quiet-period session running");
+            api.Agents = false;
+            session.CheckAt(TimeSpan.FromMinutes(12));
+            Assert(session.Active, "session waits out the agent quiet period");
+            session.CheckAt(TimeSpan.FromMinutes(14));
+            Assert(!session.Active && !api.Pending && !api.Watching, "agent quiet period ends the session and stops the agent watch");
         }
         Assert(!api.Pending && !api.Awake, "disposing releases remaining recovery state");
         if (args.Length > 0)
         {
             Application.EnableVisualStyles();
-            using (var form = new WorkSessionDialog())
+            using (var form = new WorkSessionDialog(args.Length < 2 || args[1] != "casual"))
             {
                 form.StartPosition = FormStartPosition.Manual;
                 form.Location = new System.Drawing.Point(-20000, -20000);
