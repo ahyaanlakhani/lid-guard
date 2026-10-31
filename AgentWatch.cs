@@ -14,7 +14,9 @@ internal sealed class AgentWatch : IDisposable
     internal const double BusyCpuSeconds = 0.06;     // 2% of one core over one sample
     static readonly string[] AgentNames = { "claude", "codex", "gemini" };
     static readonly string[] Runtimes = { "node", "python", "pythonw", "pwsh", "powershell", "cmd" };
-    static readonly string[] Packages = { "@anthropic-ai/claude-code", "@openai/codex", "@google/gemini-cli", "gemini-cli" };
+    // helpers an agent starts that do work of their own, not the agent's: browsers and language servers
+    static readonly string[] Helpers = { "chrome", "msedge", "msedgewebview2", "firefox", "chromium", "electron", "tsserver", "gopls", "rust-analyzer", "pyright" };
+    static readonly string[] Packages ={ "@anthropic-ai/claude-code", "@openai/codex", "@google/gemini-cli", "gemini-cli" };
 
     readonly Timer timer;
     readonly object gate = new object();
@@ -67,12 +69,14 @@ internal sealed class AgentWatch : IDisposable
     void Measure()
     {
         var children = new Dictionary<int, List<int>>();
+        var names = new Dictionary<int, string>();
         var roots = new List<int>();
         foreach (var entry in NativeProcesses.List())
         {
             List<int> kids;
             if (!children.TryGetValue(entry.Parent, out kids)) children[entry.Parent] = kids = new List<int>();
             kids.Add(entry.Pid);
+            names[entry.Pid] = BaseName(entry.Name);
 
             // only look closer at processes that could be an agent: a path or command line costs a system call
             string n = BaseName(entry.Name);
@@ -84,13 +88,15 @@ internal sealed class AgentWatch : IDisposable
 
         // every process under an agent root, including the root itself. LidGuard itself is never part of
         // the tree, even when an agent launched it, so its own work is not mistaken for agent work.
+        // Helpers an agent starts (browsers, editor language servers) are left out with everything they start.
         int self = Process.GetCurrentProcess().Id;
         var tree = new HashSet<int>();
         var queue = new Queue<int>(roots);
         while (queue.Count > 0)
         {
             int pid = queue.Dequeue();
-            if (pid == self || !tree.Add(pid)) continue;
+            string name;
+            if (pid == self || (names.TryGetValue(pid, out name) && Array.IndexOf(Helpers, name) >= 0) || !tree.Add(pid)) continue;
             List<int> kids;
             if (children.TryGetValue(pid, out kids)) foreach (var k in kids) queue.Enqueue(k);
         }

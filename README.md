@@ -79,7 +79,7 @@ Work sessions can end when agents go quiet. Tick **End when no agent has been wo
 - `codex.exe` and `gemini.exe`.
 - A `node`, `python` or shell process started with the `@anthropic-ai/claude-code`, `@openai/codex` or Gemini CLI package.
 
-An agent counts as **busy** when its process and everything it started used at least 2% of one CPU core in each of two 3-second samples in a row, so a short spike does not count. An open but idle agent doesn't count, and neither does a process that merely exists. A tool, script or dev server started by an agent counts as agent work while it uses CPU, so a long-running background process keeps the session going. Detection is a heuristic: it can't see whether an agent is waiting on you, and it reads process CPU, not model activity.
+An agent counts as **busy** when its process and everything it started used at least 2% of one CPU core in each of two 3-second samples in a row, so a short spike does not count. An open but idle agent doesn't count, and neither does a process that merely exists. A tool, script or dev server started by an agent counts as agent work while it uses CPU, so a long-running background process keeps the session going. Browsers and language servers started by an agent are left out, along with everything they start. Detection is a heuristic: it can't see whether an agent is waiting on you, and it reads process CPU, not model activity.
 
 ## Recovery status
 
