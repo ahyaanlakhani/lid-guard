@@ -538,7 +538,8 @@ class MainForm : Form
         Font = Ui.F(10);
         DoubleBuffered = true;
         BackColor = Theme.Current.Bg;
-        int pad = Ui.S(24), w = Ui.S(400);
+        // three columns: actions | settings and security | lock screen. Each column is w wide.
+        int pad = Ui.S(24), gap = Ui.S(24), w = Ui.S(340), x2 = pad + w + gap, x3 = x2 + w + gap;
 
         // header
         int logo = Ui.S(44);
@@ -550,9 +551,10 @@ class MainForm : Form
         tagline.SetBounds(pad + logo + Ui.S(12), pad + Ui.S(26), Ui.S(320), Ui.S(20));
 
         var lockBtn = new RButton { Text = "Privacy cover", Primary = true, Font = Ui.F(12, "Semibold") };
-        lockBtn.SetBounds(pad, pad + Ui.S(70), Ui.S(195), Ui.S(52));
+        int half = (w - Ui.S(10)) / 2;
+        lockBtn.SetBounds(pad, pad + Ui.S(70), half, Ui.S(52));
         var secureBtn = new RButton { Text = "Lock Windows", Font = Ui.F(11, "Semibold") };
-        secureBtn.SetBounds(pad + Ui.S(205), pad + Ui.S(70), Ui.S(195), Ui.S(52));
+        secureBtn.SetBounds(pad + half + Ui.S(10), pad + Ui.S(70), half, Ui.S(52));
         secureBtn.Click += (a, e) => app.SecureLock();
         Controls.Add(secureBtn);
         status = new Chip("", "success");
@@ -586,9 +588,9 @@ class MainForm : Form
         Controls.AddRange(new Control[] { workBtn, workStatus, recoveryStatus, retryRecovery });
 
         // settings
-        var settingsLbl = Section("SETTINGS", retryRecovery.Bottom + Ui.S(16), pad);
+        var settingsLbl = Section("SETTINGS", pad, x2);
         var settings = new Card();
-        settings.SetBounds(pad, settingsLbl.Bottom + Ui.S(8), w, Ui.S(62) * 4);
+        settings.SetBounds(x2, settingsLbl.Bottom + Ui.S(8), w, Ui.S(62) * 4);
         hotkey = new RButton { Chevron = true, Text = Config.Hotkey, Size = new Size(Ui.S(140), Ui.S(34)) };
         hotkeyMenu = MenuRenderer.NewMenu();
         foreach (var name in Hotkeys.Names)
@@ -629,18 +631,18 @@ class MainForm : Form
         modeBtn.Click += (a, e) => modeMenu.Show(modeBtn, new Point(0, modeBtn.Height + Ui.S(4)));
 
         // security
-        var securityLbl = Section("SECURITY", settings.Bottom + Ui.S(22), pad);
+        var securityLbl = Section("SECURITY", settings.Bottom + Ui.S(22), x2);
         var security = new Card();
-        security.SetBounds(pad, securityLbl.Bottom + Ui.S(8), w, Ui.S(62) * 2);
+        security.SetBounds(x2, securityLbl.Bottom + Ui.S(8), w, Ui.S(62) * 2);
         var pwBtn = new RButton { Text = "Change", Size = new Size(Ui.S(96), Ui.S(34)) };
         keyBtn = new RButton { Size = new Size(Ui.S(96), Ui.S(34)) };
         Row(security, 0, "Password", "Unlocks the lock screen", pwBtn);
         keySub = Row(security, 1, "Secret key", "", keyBtn);
 
         // lock screen personalisation
-        var lockLbl = Section("LOCK SCREEN", security.Bottom + Ui.S(22), pad);
+        var lockLbl = Section("LOCK SCREEN", pad, x3);
         var personal = new Card();
-        personal.SetBounds(pad, lockLbl.Bottom + Ui.S(8), w, Ui.S(62) * 4);
+        personal.SetBounds(x3, lockLbl.Bottom + Ui.S(8), w, Ui.S(62) * 4);
         var nameBox = Input(Config.Name, "Your name");
         var cityBox = Input(Config.City, "City");
         var noteBox = Input(Config.Note, "Back soon");
@@ -672,13 +674,13 @@ class MainForm : Form
         cityBox.Box.KeyDown += (a, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; LookUpCity(cityBox); } };
 
         var foot = Ui.Lbl("Closing this window keeps LidGuard running in the tray.", Ui.F(9), "muted");
-        foot.SetBounds(pad, personal.Bottom + Ui.S(16), w, Ui.S(20));
+        foot.SetBounds(pad, Math.Max(security.Bottom, personal.Bottom) + Ui.S(16), x3 + w - pad, Ui.S(20));
         foot.TextAlign = ContentAlignment.MiddleCenter;
 
         Controls.AddRange(new Control[] { pic, title, tagline, lockBtn, status, settings, security, personal, foot });
         AutoScroll = true;
         AutoScrollMinSize = new Size(0, foot.Bottom + pad);
-        ClientSize = new Size(w + pad * 2 + SystemInformation.VerticalScrollBarWidth,
+        ClientSize = new Size(x3 + w + pad + SystemInformation.VerticalScrollBarWidth,
             Math.Min(foot.Bottom + pad, Screen.FromControl(this).WorkingArea.Height - Ui.S(80)));
 
         dark.CheckedChanged += (a, e) => { Config.Dark = dark.Checked; Config.Save(); ApplyTheme(); };
@@ -787,8 +789,8 @@ class MainForm : Form
         wallSub.Invalidate();
     }
 
-    const string ModePrivacyText = "Work sessions lock Windows, for privacy";
-    const string ModeCasualText = "Work sessions keep the PC awake, no lock";
+    const string ModePrivacyText = "Sessions lock Windows";
+    const string ModeCasualText = "Sessions keep the PC awake";
 
     static RBox Input(string value, string placeholder)
     {
