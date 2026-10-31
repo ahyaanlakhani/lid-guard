@@ -693,6 +693,26 @@ class App : ApplicationContext
             Balloon("Windows could not lock this session. Try Win+L.");
     }
 
+    static readonly string NoticeFile = Path.Combine(Config.Dir, "notice-seen.txt");
+
+    // a plain MessageBox from a tray app can open behind other windows, so the notice gets a topmost owner
+    static bool ConfirmNotice()
+    {
+        DialogResult answer;
+        using (var owner = new Form { TopMost = true, ShowInTaskbar = false, Opacity = 0, Size = new Size(1, 1), StartPosition = FormStartPosition.CenterScreen })
+        {
+            owner.Show();
+            owner.Activate();
+            answer = MessageBox.Show(owner, "Privacy cover hides the desktop but is not a Windows security lock. " +
+                "Use the tray's Lock Windows securely command when you need Windows authentication.\n\nStart the privacy cover?",
+                "Privacy cover", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
+        }
+        if (answer != DialogResult.OK) return false;
+        Directory.CreateDirectory(Config.Dir);
+        File.WriteAllText(NoticeFile, "1");
+        return true;
+    }
+
     public void Lock()
     {
         if (session != null || work.Active) return;
@@ -703,9 +723,8 @@ class App : ApplicationContext
             using (var password = new PasswordDialog(false)) password.ShowDialog(main);
             if (!Config.HasPassword) return;
         }
-        if (MessageBox.Show("Privacy cover hides the desktop but is not a Windows security lock. " +
-            "Use the tray's Lock Windows securely command when you need Windows authentication.\n\nStart the privacy cover?",
-            "Privacy cover", MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
+        // the notice is shown once; after that the shortcut locks straight away
+        if (!File.Exists(NoticeFile) && !ConfirmNotice()) return;
         bool mainWasVisible = main != null && main.Visible;
         if (main != null) main.Hide();
         session = new LockSession(() => { session = null; if (mainWasVisible) ShowMain(); });
