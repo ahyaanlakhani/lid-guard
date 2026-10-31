@@ -30,7 +30,23 @@ internal sealed class AgentWatch : IDisposable
         internal string Name;
         internal int Sessions;
         internal bool Working;
+        internal DateTime Since;        // when the current working period began (only while working)
     }
+
+    // something an agent did: it started working, or it finished
+    internal sealed class Event
+    {
+        internal DateTime Time;
+        internal string Name;
+        internal bool Started;          // false = it finished
+        internal TimeSpan Worked;       // for a finish: how long it had been working
+    }
+
+    // called on a background thread for each start or finish
+    internal Action<Event> OnEvent;
+    readonly List<Event> events = new List<Event>();
+    readonly Dictionary<string, DateTime> workingSince = new Dictionary<string, DateTime>();
+    const int KeepEvents = 50;
 
     readonly Timer timer;
     readonly object gate = new object();
@@ -49,7 +65,9 @@ internal sealed class AgentWatch : IDisposable
     // agent sessions found at the last sample (0 = no agent is running)
     internal int Agents { get { lock (gate) { int n = 0; foreach (var s in statuses) n += s.Sessions; return n; } } }
     // each agent kind that is running, with its sessions and whether it is working
-    internal List<Status> Snapshot() { lock (gate) { var copy = new List<Status>(); foreach (var s in statuses) copy.Add(new Status { Name = s.Name, Sessions = s.Sessions, Working = s.Working }); return copy; } }
+    internal List<Status> Snapshot() { lock (gate) { var copy = new List<Status>(); foreach (var s in statuses) copy.Add(new Status { Name = s.Name, Sessions = s.Sessions, Working = s.Working, Since = s.Since }); return copy; } }
+    // the most recent starts and finishes, newest first
+    internal List<Event> Events() { lock (gate) return new List<Event>(events); }
 
     static string BaseName(string name)
     {
@@ -152,10 +170,12 @@ internal sealed class AgentWatch : IDisposable
             }
         }
 
+        var raised = new List<Event>();
         lock (gate)
         {
             lastCpu = cpu;
             var list = new List<Status>();
+            var now = DateTime.Now;
             foreach (var status in perKind.Values)
             {
                 double work;
@@ -166,11 +186,39 @@ internal sealed class AgentWatch : IDisposable
                 streak = primed && work >= BusyCpuSeconds ? streak + 1 : 0;
                 busyStreak[status.Name] = streak;
                 status.Working = streak >= 2;
+
+                bool wasWorking = workingSince.ContainsKey(status.Name);
+                if (status.Working && !wasWorking)
+                {
+                    workingSince[status.Name] = now;
+                    raised.Add(new Event { Time = now, Name = status.Name, Started = true });
+                }
+                else if (!status.Working && wasWorking)
+                {
+                    raised.Add(Finished(status.Name, now));
+                }
+                if (status.Working) status.Since = workingSince[status.Name];
                 list.Add(status);
             }
+            // an agent that stopped entirely while working has finished too
+            foreach (var name in new List<string>(workingSince.Keys))
+                if (!perKind.ContainsKey(name)) raised.Add(Finished(name, now));
+
             statuses = list;
+            foreach (var e in raised) events.Insert(0, e);
+            if (events.Count > KeepEvents) events.RemoveRange(KeepEvents, events.Count - KeepEvents);
             primed = true;
         }
+        if (OnEvent != null) foreach (var e in raised) OnEvent(e);
+    }
+
+    // ends a working period: forgets its start and returns the finish event
+    Event Finished(string name, DateTime now)
+    {
+        DateTime since;
+        workingSince.TryGetValue(name, out since);
+        workingSince.Remove(name);
+        return new Event { Time = now, Name = name, Started = false, Worked = now - since };
     }
 
     public void Dispose()

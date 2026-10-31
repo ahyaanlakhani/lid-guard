@@ -587,7 +587,8 @@ class App : ApplicationContext
     readonly NotifyIcon tray;
     readonly MessageWindow msgWin;
     Form main;                  // MainForm (privacy) or CasualForm, by mode
-    AgentWatch uiAgents;        // watches agents only while the casual window is open
+    AgentWatch casualWatch;     // runs in casual mode: the agent list, the activity feed and the notices
+    Control anchor;             // UI thread anchor, for work that finishes on a background thread
     LockSession session;
     readonly SecureWorkSession work;
     public bool Quitting;
@@ -621,6 +622,9 @@ class App : ApplicationContext
         tray = new NotifyIcon { Icon = AppIcon.Small, Text = "LidGuard", ContextMenuStrip = menu, Visible = true };
         tray.MouseClick += (a, e) => { if (e.Button == MouseButtons.Left) ShowMain(); };
 
+        anchor = new Control();
+        anchor.CreateControl();
+        if (Config.CasualMode) StartCasualWatch();
         ApplyHotkey(false);
         // have the wallpaper and weather ready before the first lock, so the cover appears instantly
         var size = Screen.PrimaryScreen.Bounds.Size;
@@ -713,13 +717,38 @@ class App : ApplicationContext
 
     public List<AgentWatch.Status> AgentStatuses()
     {
-        return uiAgents == null ? new List<AgentWatch.Status>() : uiAgents.Snapshot();
+        return casualWatch == null ? new List<AgentWatch.Status>() : casualWatch.Snapshot();
     }
 
-    public void WatchAgentsForWindow(bool on)
+    public List<AgentWatch.Event> AgentEvents()
     {
-        if (on && uiAgents == null) uiAgents = new AgentWatch();
-        else if (!on && uiAgents != null) { uiAgents.Dispose(); uiAgents = null; }
+        return casualWatch == null ? new List<AgentWatch.Event>() : casualWatch.Events();
+    }
+
+    // casual mode keeps watching agents, so the feed and the notices are there even with the window closed
+    void StartCasualWatch()
+    {
+        if (casualWatch != null) return;
+        casualWatch = new AgentWatch();
+        casualWatch.OnEvent = e =>
+        {
+            try { anchor.BeginInvoke((Action)(() => Announce(e))); }
+            catch (InvalidOperationException) { }   // shutting down
+        };
+    }
+
+    void StopCasualWatch()
+    {
+        if (casualWatch == null) return;
+        casualWatch.Dispose();
+        casualWatch = null;
+    }
+
+    void Announce(AgentWatch.Event e)
+    {
+        if (!Config.CasualMode) return;
+        if (e.Started) Balloon(e.Name + " started working");
+        else Balloon(e.Name + " finished after " + Math.Max(1, (int)Math.Round(e.Worked.TotalMinutes)) + " min");
     }
 
     // switches between casual and privacy. The window is rebuilt for the new mode after the control that asked has finished.
@@ -727,6 +756,7 @@ class App : ApplicationContext
     {
         Config.Mode = mode == "casual" ? "casual" : "privacy";
         Config.Save();
+        if (Config.CasualMode) StartCasualWatch(); else StopCasualWatch();
         if (main == null || main.IsDisposed) return;
         bool wasVisible = main.Visible;
         main.BeginInvoke((Action)(() =>

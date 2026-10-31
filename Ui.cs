@@ -1,4 +1,4 @@
-﻿// LidGuard UI: theme, custom-drawn controls, lock screen, dialogs and the main window.
+// LidGuard UI: theme, custom-drawn controls, lock screen, dialogs and the main window.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -590,7 +590,7 @@ class MainForm : Form
         // settings
         var settingsLbl = Section("SETTINGS", pad, x2);
         var settings = new Card();
-        settings.SetBounds(x2, settingsLbl.Bottom + Ui.S(8), w, Ui.S(62) * 4);
+        settings.SetBounds(x2, settingsLbl.Bottom + Ui.S(8), w, Ui.S(62) * 3);
         hotkey = new RButton { Chevron = true, Text = Config.Hotkey, Size = new Size(Ui.S(140), Ui.S(34)) };
         hotkeyMenu = MenuRenderer.NewMenu();
         foreach (var name in Hotkeys.Names)
@@ -612,22 +612,6 @@ class MainForm : Form
         Row(settings, 1, "Dark mode", "Also used on the lock screen", dark);
         Row(settings, 2, "Start with Windows", "Keeps the shortcut ready after a restart", startup);
 
-        // mode: privacy locks Windows for work sessions; casual only keeps the PC awake
-        var modeBtn = new RButton { Chevron = true, Text = Config.CasualMode ? "Casual" : "Privacy", Size = new Size(Ui.S(140), Ui.S(34)) };
-        var modeMenu = MenuRenderer.NewMenu();
-        var modeSub = Row(settings, 3, "Mode", Config.CasualMode ? ModeCasualText : ModePrivacyText, modeBtn);
-        foreach (var choice in new[] { "privacy", "casual" })
-        {
-            string picked = choice;
-            modeMenu.Items.Add(picked == "casual" ? "Casual: no lock, keeps awake" : "Privacy: locks Windows", null, (a, e) =>
-            {
-                app.SetMode(picked);
-                modeBtn.Text = Config.CasualMode ? "Casual" : "Privacy";
-                modeSub.Text = Config.CasualMode ? ModeCasualText : ModePrivacyText;
-                modeSub.Invalidate();
-            });
-        }
-        modeBtn.Click += (a, e) => modeMenu.Show(modeBtn, new Point(0, modeBtn.Height + Ui.S(4)));
 
         // security
         var securityLbl = Section("SECURITY", settings.Bottom + Ui.S(22), x2);
@@ -677,6 +661,8 @@ class MainForm : Form
         foot.TextAlign = ContentAlignment.MiddleCenter;
 
         Controls.AddRange(new Control[] { pic, title, tagline, lockBtn, status, settings, security, personal, foot });
+        // the Privacy | Casual switch sits above everything else
+        ModeSwitch.MakeRoom(this, app, pad, pad, x3 + w - pad);
         AutoScroll = true;
         AutoScrollMinSize = new Size(0, foot.Bottom + pad);
         ClientSize = new Size(x3 + w + pad + SystemInformation.VerticalScrollBarWidth,
@@ -788,8 +774,6 @@ class MainForm : Form
         wallSub.Invalidate();
     }
 
-    const string ModePrivacyText = "Sessions lock Windows";
-    const string ModeCasualText = "Sessions keep the PC awake";
 
     static RBox Input(string value, string placeholder)
     {
