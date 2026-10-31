@@ -586,7 +586,8 @@ class App : ApplicationContext
     public static readonly uint ShowMsg = Native.RegisterWindowMessage("LidGuard.ShowWindow");
     readonly NotifyIcon tray;
     readonly MessageWindow msgWin;
-    MainForm main;
+    Form main;                  // MainForm (privacy) or CasualForm, by mode
+    AgentWatch uiAgents;        // watches agents only while the casual window is open
     LockSession session;
     readonly SecureWorkSession work;
     public bool Quitting;
@@ -626,7 +627,7 @@ class App : ApplicationContext
         ThreadPool.QueueUserWorkItem(_ => { try { Wallpaper.Get(size); } catch { } });
         Loop.EnsureAsync();
         Weather.Refresh();
-        if (!background || !Config.HasPassword) ShowMain();
+        if (!background || (!Config.HasPassword && !Config.CasualMode)) ShowMain();
     }
 
     public void Balloon(string text) { tray.ShowBalloonTip(3000, "LidGuard", text, ToolTipIcon.Info); }
@@ -693,6 +694,51 @@ class App : ApplicationContext
             Balloon("Windows could not lock this session. Try Win+L.");
     }
 
+    // casual mode: a session that keeps the PC awake and never locks. The quiet option ends it after 10 minutes with no agent working.
+    public void StartCasual(int minutes, bool endWhenQuiet)
+    {
+        if (session != null) return;
+        try
+        {
+            if (work.Active) work.End("Replaced by a new session.");
+            work.Start(new WorkPolicy(minutes, false, 20, false, false, endWhenQuiet ? 10 : 0));
+        }
+        catch (Exception ex) { Balloon(ex.Message); }
+    }
+
+    public void StopCasual()
+    {
+        if (work.Active) work.End("Stopped.");
+    }
+
+    public List<AgentWatch.Status> AgentStatuses()
+    {
+        return uiAgents == null ? new List<AgentWatch.Status>() : uiAgents.Snapshot();
+    }
+
+    public void WatchAgentsForWindow(bool on)
+    {
+        if (on && uiAgents == null) uiAgents = new AgentWatch();
+        else if (!on && uiAgents != null) { uiAgents.Dispose(); uiAgents = null; }
+    }
+
+    // switches between casual and privacy. The window is rebuilt for the new mode after the control that asked has finished.
+    public void SetMode(string mode)
+    {
+        Config.Mode = mode == "casual" ? "casual" : "privacy";
+        Config.Save();
+        if (main == null || main.IsDisposed) return;
+        bool wasVisible = main.Visible;
+        main.BeginInvoke((Action)(() =>
+        {
+            if (main == null) return;
+            main.Hide();
+            main.Dispose();
+            main = null;
+            if (wasVisible) ShowMain();
+        }));
+    }
+
     static readonly string NoticeFile = Path.Combine(Config.Dir, "notice-seen.txt");
 
     // a plain MessageBox from a tray app can open behind other windows, so the notice gets a topmost owner
@@ -715,6 +761,8 @@ class App : ApplicationContext
 
     public void Lock()
     {
+        // casual mode has no lock and no password: the shortcut just brings the window forward
+        if (Config.CasualMode) { ShowMain(); return; }
         if (session != null || work.Active) return;
         // a dialog (e.g. change password) is open: bring it forward instead of locking over it
         foreach (Form f in Application.OpenForms) if (f.Modal) { f.Activate(); return; }
@@ -734,7 +782,7 @@ class App : ApplicationContext
     public void ShowMain()
     {
         if (session != null) return;
-        if (main == null || main.IsDisposed) main = new MainForm(this);
+        if (main == null || main.IsDisposed) main = Config.CasualMode ? (Form)new CasualForm(this) : new MainForm(this);
         main.Show();
         if (main.WindowState == FormWindowState.Minimized) main.WindowState = FormWindowState.Normal;
         main.Activate();

@@ -621,8 +621,7 @@ class MainForm : Form
             string picked = choice;
             modeMenu.Items.Add(picked == "casual" ? "Casual: no lock, keeps awake" : "Privacy: locks Windows", null, (a, e) =>
             {
-                Config.Mode = picked;
-                Config.Save();
+                app.SetMode(picked);
                 modeBtn.Text = Config.CasualMode ? "Casual" : "Privacy";
                 modeSub.Text = Config.CasualMode ? ModeCasualText : ModePrivacyText;
                 modeSub.Invalidate();

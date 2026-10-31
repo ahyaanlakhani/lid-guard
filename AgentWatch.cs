@@ -5,36 +5,51 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
-// Watches AI coding agents (Claude Code, Codex, Gemini CLI) and reports whether one is busy.
-// An agent counts as busy when its process tree (the agent plus everything it started) used CPU
-// during the last sample. An open but idle agent uses almost no CPU, so it does not count as work.
+// Watches AI coding agents (Claude Code, Codex, Gemini CLI) and reports which are running and which are busy.
+// An agent counts as busy when its process tree (the agent plus everything it started) used CPU in two
+// samples in a row. An open but idle agent uses almost no CPU, so it does not count as work.
 internal sealed class AgentWatch : IDisposable
 {
     internal static readonly TimeSpan Interval = TimeSpan.FromSeconds(3);
     internal const double BusyCpuSeconds = 0.06;     // 2% of one core over one sample
-    static readonly string[] AgentNames = { "claude", "codex", "gemini" };
     static readonly string[] Runtimes = { "node", "python", "pythonw", "pwsh", "powershell", "cmd" };
     // helpers an agent starts that do work of their own, not the agent's: browsers and language servers
     static readonly string[] Helpers = { "chrome", "msedge", "msedgewebview2", "firefox", "chromium", "electron", "tsserver", "gopls", "rust-analyzer", "pyright" };
-    static readonly string[] Packages ={ "@anthropic-ai/claude-code", "@openai/codex", "@google/gemini-cli", "gemini-cli" };
+    // npm package paths that show up in a runtime's command line, with the name shown for them
+    static readonly KeyValuePair<string, string>[] Packages =
+    {
+        new KeyValuePair<string, string>("@anthropic-ai/claude-code", "Claude Code"),
+        new KeyValuePair<string, string>("@openai/codex", "Codex"),
+        new KeyValuePair<string, string>("@google/gemini-cli", "Gemini CLI"),
+        new KeyValuePair<string, string>("gemini-cli", "Gemini CLI"),
+    };
+
+    // one agent kind as the window shows it
+    internal sealed class Status
+    {
+        internal string Name;
+        internal int Sessions;
+        internal bool Working;
+    }
 
     readonly Timer timer;
     readonly object gate = new object();
     Dictionary<int, TimeSpan> lastCpu = new Dictionary<int, TimeSpan>();
+    readonly Dictionary<string, int> busyStreak = new Dictionary<string, int>();
+    List<Status> statuses = new List<Status>();
     bool primed;
-    bool busy;
-    int busyStreak;
-    int agents;
 
     internal AgentWatch()
     {
         timer = new Timer(_ => Sample(), null, TimeSpan.Zero, Interval);
     }
 
-    // true while any agent's process tree used CPU during the last sample
-    internal bool Busy { get { lock (gate) return busy; } }
-    // agent processes found at the last sample (0 = no agent is running)
-    internal int Agents { get { lock (gate) return agents; } }
+    // true while any agent used CPU in its last two samples
+    internal bool Busy { get { lock (gate) { foreach (var s in statuses) if (s.Working) return true; return false; } } }
+    // agent sessions found at the last sample (0 = no agent is running)
+    internal int Agents { get { lock (gate) { int n = 0; foreach (var s in statuses) n += s.Sessions; return n; } } }
+    // each agent kind that is running, with its sessions and whether it is working
+    internal List<Status> Snapshot() { lock (gate) { var copy = new List<Status>(); foreach (var s in statuses) copy.Add(new Status { Name = s.Name, Sessions = s.Sessions, Working = s.Working }); return copy; } }
 
     static string BaseName(string name)
     {
@@ -42,18 +57,24 @@ internal sealed class AgentWatch : IDisposable
         return n.EndsWith(".exe") ? n.Substring(0, n.Length - 4) : n;
     }
 
-    // true when a process is an agent's root process (not one of the processes it starts).
+    // the agent a process is, by its display name, or null if it is not an agent's root process.
     // The Claude desktop app also runs a claude.exe, so Claude only counts from the Claude Code install.
-    internal static bool IsAgentRoot(string name, string path, string commandLine)
+    internal static string AgentKind(string name, string path, string commandLine)
     {
         string n = BaseName(name);
         string p = (path ?? "").ToLowerInvariant().Replace('/', '\\');
-        if (n == "claude") return p.Contains("\\claude-code\\") && !p.Contains("\\anthropicclaude\\");
-        if (n == "codex" || n == "gemini") return true;
-        if (Array.IndexOf(Runtimes, n) < 0 || string.IsNullOrEmpty(commandLine)) return false;
+        if (n == "claude") return p.Contains("\\claude-code\\") && !p.Contains("\\anthropicclaude\\") ? "Claude Code" : null;
+        if (n == "codex") return "Codex";
+        if (n == "gemini") return "Gemini CLI";
+        if (Array.IndexOf(Runtimes, n) < 0 || string.IsNullOrEmpty(commandLine)) return null;
         string c = commandLine.ToLowerInvariant().Replace('\\', '/');
-        foreach (var package in Packages) if (c.Contains(package)) return true;
-        return false;
+        foreach (var package in Packages) if (c.Contains(package.Key)) return package.Value;
+        return null;
+    }
+
+    internal static bool IsAgentRoot(string name, string path, string commandLine)
+    {
+        return AgentKind(name, path, commandLine) != null;
     }
 
     void Sample()
@@ -62,7 +83,7 @@ internal sealed class AgentWatch : IDisposable
         catch
         {
             // a process vanishing mid-sample: report nothing busy rather than guess
-            lock (gate) { busy = false; agents = 0; }
+            lock (gate) { statuses = new List<Status>(); }
         }
     }
 
@@ -70,7 +91,7 @@ internal sealed class AgentWatch : IDisposable
     {
         var children = new Dictionary<int, List<int>>();
         var names = new Dictionary<int, string>();
-        var roots = new List<int>();
+        var roots = new List<KeyValuePair<int, string>>();
         foreach (var entry in NativeProcesses.List())
         {
             List<int> kids;
@@ -80,54 +101,74 @@ internal sealed class AgentWatch : IDisposable
 
             // only look closer at processes that could be an agent: a path or command line costs a system call
             string n = BaseName(entry.Name);
-            if (Array.IndexOf(AgentNames, n) < 0 && Array.IndexOf(Runtimes, n) < 0) continue;
+            if (n != "claude" && n != "codex" && n != "gemini" && Array.IndexOf(Runtimes, n) < 0) continue;
             string path = n == "claude" ? NativeProcesses.ExePath(entry.Pid) : null;
             string commandLine = Array.IndexOf(Runtimes, n) >= 0 ? NativeProcesses.CommandLine(entry.Pid) : null;
-            if (IsAgentRoot(entry.Name, path, commandLine)) roots.Add(entry.Pid);
+            string kind = AgentKind(entry.Name, path, commandLine);
+            if (kind != null) roots.Add(new KeyValuePair<int, string>(entry.Pid, kind));
         }
 
-        // every process under an agent root, including the root itself. LidGuard itself is never part of
-        // the tree, even when an agent launched it, so its own work is not mistaken for agent work.
-        // Helpers an agent starts (browsers, editor language servers) are left out with everything they start.
+        // Each agent's tree: the agent plus everything it started. LidGuard itself is never part of a tree,
+        // even when an agent launched it. Helpers (browsers, editor language servers) are left out with
+        // everything they start. A process belongs to the first agent that reaches it.
         int self = Process.GetCurrentProcess().Id;
-        var tree = new HashSet<int>();
-        var queue = new Queue<int>(roots);
-        while (queue.Count > 0)
-        {
-            int pid = queue.Dequeue();
-            string name;
-            if (pid == self || (names.TryGetValue(pid, out name) && Array.IndexOf(Helpers, name) >= 0) || !tree.Add(pid)) continue;
-            List<int> kids;
-            if (children.TryGetValue(pid, out kids)) foreach (var k in kids) queue.Enqueue(k);
-        }
-
+        var claimed = new HashSet<int>();
+        var perKind = new Dictionary<string, Status>();
+        var used = new Dictionary<string, double>();
         var cpu = new Dictionary<int, TimeSpan>();
-        double used = 0;
-        foreach (var pid in tree)
+        foreach (var root in roots)
         {
-            try
+            Status status;
+            if (!perKind.TryGetValue(root.Value, out status)) perKind[root.Value] = status = new Status { Name = root.Value };
+            status.Sessions++;
+
+            var queue = new Queue<int>();
+            queue.Enqueue(root.Key);
+            while (queue.Count > 0)
             {
-                using (var p = Process.GetProcessById(pid))
+                int pid = queue.Dequeue();
+                string name;
+                if (pid == self || (names.TryGetValue(pid, out name) && Array.IndexOf(Helpers, name) >= 0) || !claimed.Add(pid)) continue;
+                List<int> kids;
+                if (children.TryGetValue(pid, out kids)) foreach (var k in kids) queue.Enqueue(k);
+                try
                 {
-                    var total = p.TotalProcessorTime;
-                    cpu[pid] = total;
-                    TimeSpan before;
-                    // a process seen for the first time only starts counting from the next sample
-                    if (primed && lastCpu.TryGetValue(pid, out before)) used += (total - before).TotalSeconds;
-                    else if (primed) used += total.TotalSeconds;
+                    using (var p = Process.GetProcessById(pid))
+                    {
+                        var total = p.TotalProcessorTime;
+                        cpu[pid] = total;
+                        TimeSpan before;
+                        double add = 0;
+                        // a process seen for the first time only starts counting from the next sample
+                        if (primed && lastCpu.TryGetValue(pid, out before)) add = (total - before).TotalSeconds;
+                        else if (primed) add = total.TotalSeconds;
+                        double so_far;
+                        used.TryGetValue(root.Value, out so_far);
+                        used[root.Value] = so_far + add;
+                    }
                 }
+                catch (ArgumentException) { }   // exited while we were looking
+                catch (InvalidOperationException) { }
             }
-            catch (ArgumentException) { }   // exited while we were looking
-            catch (InvalidOperationException) { }
         }
 
         lock (gate)
         {
             lastCpu = cpu;
-            // two busy samples in a row: a short spike (a shell starting up, a log write) is not work
-            busyStreak = primed && used >= BusyCpuSeconds ? busyStreak + 1 : 0;
-            busy = busyStreak >= 2;
-            agents = roots.Count;
+            var list = new List<Status>();
+            foreach (var status in perKind.Values)
+            {
+                double work;
+                used.TryGetValue(status.Name, out work);
+                // two busy samples in a row: a short spike (a shell starting up, a log write) is not work
+                int streak;
+                busyStreak.TryGetValue(status.Name, out streak);
+                streak = primed && work >= BusyCpuSeconds ? streak + 1 : 0;
+                busyStreak[status.Name] = streak;
+                status.Working = streak >= 2;
+                list.Add(status);
+            }
+            statuses = list;
             primed = true;
         }
     }

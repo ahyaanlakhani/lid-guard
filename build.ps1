@@ -13,7 +13,7 @@ if ($LASTEXITCODE) { throw 'IconGen failed to compile' }
 & "$bin\IconGen.exe" "$bin\LidGuard.ico" "$bin\icon-preview.png"
 if ($LASTEXITCODE) { throw 'IconGen failed' }
 
-& $csc /nologo /target:winexe /codepage:65001 "/out:$bin\LidGuard.exe" "/win32icon:$bin\LidGuard.ico" "/resource:$bin\LidGuard.ico,LidGuard.ico" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll "$PSScriptRoot\AgentWatch.cs" "$PSScriptRoot\WorkPolicy.cs" "$PSScriptRoot\SecureWorkSession.cs" "$PSScriptRoot\PowerRecovery.cs" "$PSScriptRoot\Program.cs" "$PSScriptRoot\Ui.cs" "$PSScriptRoot\LockScreen.cs" "$PSScriptRoot\VideoWallpaper.cs"
+& $csc /nologo /target:winexe /codepage:65001 "/out:$bin\LidGuard.exe" "/win32icon:$bin\LidGuard.ico" "/resource:$bin\LidGuard.ico,LidGuard.ico" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll "$PSScriptRoot\AgentWatch.cs" "$PSScriptRoot\WorkPolicy.cs" "$PSScriptRoot\SecureWorkSession.cs" "$PSScriptRoot\PowerRecovery.cs" "$PSScriptRoot\Program.cs" "$PSScriptRoot\Ui.cs" "$PSScriptRoot\CasualForm.cs" "$PSScriptRoot\LockScreen.cs" "$PSScriptRoot\VideoWallpaper.cs"
 if ($LASTEXITCODE) { throw 'LidGuard failed to compile' }
 Write-Host "Built $bin\LidGuard.exe"
 if ($NoInstall) { return }
