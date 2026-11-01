@@ -100,6 +100,16 @@ internal sealed class SecureWorkSession : IDisposable
         }
     }
 
+    // share of the session time still left, 0 to 1; 0 when no session is running
+    internal double Remaining
+    {
+        get
+        {
+            if (!Active) return 0;
+            return Math.Max(0, Math.Min(1, 1 - elapsed.Elapsed.TotalSeconds / policy.Duration.TotalSeconds));
+        }
+    }
+
     internal SecureWorkSession(Action<string> report) : this(report, new WindowsWorkPlatform()) { }
     internal SecureWorkSession(Action<string> report, ISecureWorkPlatform platform)
     {

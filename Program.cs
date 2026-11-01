@@ -679,6 +679,7 @@ class App : ApplicationContext
 
     public bool WorkActive { get { return work.Active; } }
     public string WorkStatus { get { return work.Status; } }
+    public double WorkRemaining { get { return work.Remaining; } }
     public void StartWork()
     {
         if (session != null) return;
