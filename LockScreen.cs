@@ -740,7 +740,16 @@ class CoverForm : Form
     }
 
     static int S(float px) { return Ui.S(px); }
-    static Font Fnt(string family, float pt, FontStyle st = FontStyle.Regular) { return new Font(Glass.Family(family, "Segoe UI"), pt, st); }
+    // fonts are made once and reused: the cover paints many times a second, and a new Font for every draw
+    // leaked GDI+ memory until the cover ran out of memory and LidGuard crashed
+    static readonly Dictionary<string, Font> fonts = new Dictionary<string, Font>();
+    static Font Fnt(string family, float pt, FontStyle st = FontStyle.Regular)
+    {
+        string key = family + "|" + pt + "|" + (int)st;
+        Font f;
+        if (!fonts.TryGetValue(key, out f)) fonts[key] = f = new Font(Glass.Family(family, "Segoe UI"), pt, st);
+        return f;
+    }
 
     // ink colours: dark plum text on light glass, white on dark glass
     static Color Ink(int a = 255) { return Config.Dark ? Color.FromArgb(a, 244, 242, 252) : Color.FromArgb(a, 46, 30, 82); }
@@ -841,8 +850,7 @@ class CoverForm : Form
         {
             if (!wrap) sf.FormatFlags |= StringFormatFlags.NoWrap;
             g.DrawString(s, f, b, r, sf);
-        }
-        f.Dispose();
+        }   // the font belongs to the caller: fonts are cached and reused, so they are not disposed here
     }
 
     static void Shadowed(Graphics g, string s, Font f, Color c, RectangleF r, StringAlignment h)
