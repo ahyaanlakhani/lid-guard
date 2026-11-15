@@ -113,12 +113,35 @@ static class Program
             // a previous run died while locked: put the taskbar and the rest back
             AppDomain.CurrentDomain.ProcessExit += (s, e) => { Power.RestoreNow(); Guard.Release(); };
             SystemEvents.SessionEnding += (s, e) => { Power.RestoreNow(); Guard.Release(); };
+            // unexpected errors are written to crash.log, so a failure can be looked at afterwards
+            Application.ThreadException += (s, e) => CrashLog.Write("window thread", e.Exception);
+            AppDomain.CurrentDomain.UnhandledException += (s, e) => CrashLog.Write("background", e.ExceptionObject as Exception ?? new Exception(String.Concat(e.ExceptionObject)));
             Application.Run(new App(background));
         }
     }
     static bool RecoveryPending()
     {
         return File.Exists(Path.Combine(Config.Dir, "restore.txt")) || Guard.Engaged || File.Exists(Path.Combine(Config.Dir, "dnd.flag"));
+    }
+}
+
+// Writes unexpected errors to %APPDATA%\LidGuard\crash.log. Local only; nothing is sent anywhere.
+static class CrashLog
+{
+    static readonly object gate = new object();
+
+    public static void Write(string where, Exception ex)
+    {
+        try
+        {
+            lock (gate)
+            {
+                Directory.CreateDirectory(Config.Dir);
+                File.AppendAllText(Path.Combine(Config.Dir, "crash.log"),
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + where + Environment.NewLine + ex + Environment.NewLine + Environment.NewLine);
+            }
+        }
+        catch { }   // logging must never be the thing that fails
     }
 }
 
